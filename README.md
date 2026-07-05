@@ -70,3 +70,57 @@ Everything is built around the Asset model.
 ---
 
 ## 📁 Storage Model
+E:\MyNAS\Storage<user_id><uuid>
+
+- Files are never accessed directly
+- All operations go through `asset_id`
+
+---
+
+## 📸 Screenshots
+
+> (Add your screenshots here)
+
+- Dashboard
+- Photos
+- Storage Manager
+
+---
+
+## ⚙️ Tech Stack
+
+- FastAPI
+- Vue3
+- SQLite
+- APScheduler
+- JWT Authentication
+
+---
+
+## 🚀 Release Status
+
+Version: v3.1.0
+
+Status:
+- Backend tests: PASS
+- Frontend build: PASS
+- Scanner: STABLE
+- UI: PRODUCTION READY
+
+---
+
+## 📜 License
+
+MIT License
+
+---
+
+## 🎯 Goal
+
+To build a beautiful, secure, Windows-native personal cloud system like:
+
+- Apple iCloud Photos
+- Google Photos
+- Immich
+
+NOT a traditional NAS admin panel.
