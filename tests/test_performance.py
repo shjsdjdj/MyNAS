@@ -40,6 +40,11 @@ def test_upload_generates_thumbnail_before_success_response(tmp_path: Path):
             fs.generate_thumbnail = original_generate
 
 def test_static_files_mounted(tmp_path):
+    # StaticFiles is only mounted when a built dist/ exists (see backend/main.py).
+    # Skip in source-only checkouts where the frontend has not been built.
+    if not (Path(__file__).resolve().parent.parent / "dist").is_dir():
+        import pytest
+        pytest.skip("dist/ not built — static mount is production-build dependent")
     client, root = build_client(tmp_path)
     with client:
         has_static = any(getattr(route, "name", None) == "static" for route in client.app.routes)
