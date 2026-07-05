@@ -21,14 +21,16 @@ dist/
 *.sqlite3
 jwt-secret.key
 
-# Runtime data
-Storage/
-Thumbnails/
-Backup/
-Config/
-Logs/
-Temp/
-.tmp/
+# Runtime data (repo-root only — anchored with leading slash so backend/
+# subdirectories such as backend/storage/ are never matched on case-insensitive
+# filesystems like Windows NTFS).
+/Storage/
+/Thumbnails/
+/Backup/
+/Config/
+/Logs/
+/Temp/
+/.tmp/
 .preview-*/
 artifacts/
 
