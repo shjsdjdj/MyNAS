@@ -1,0 +1,11 @@
+# Template only. Replace placeholders after creating a locally-managed tunnel.
+tunnel: <TUNNEL-UUID>
+credentials-file: C:\Users\<WINDOWS-USERNAME>\.cloudflared\<TUNNEL-UUID>.json
+
+ingress:
+  - hostname: mynas.example.com
+    service: http://localhost:5173
+    originRequest:
+      connectTimeout: 30s
+      noTLSVerify: false
+  - service: http_status:404

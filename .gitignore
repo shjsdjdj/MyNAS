@@ -1,0 +1,52 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node / Vite
+node_modules/
+dist/
+.npm-cache/
+*.tsbuildinfo
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+jwt-secret.key
+
+# Runtime data
+Storage/
+Thumbnails/
+Backup/
+Config/
+Logs/
+Temp/
+.tmp/
+.preview-*/
+artifacts/
+
+# Cloudflare credentials (keep the example)
+cloudflare/*.yml
+!cloudflare/config.example.yml
+
+# Local agent/editor state
+.agents/
+.codex/
+AGENTS.md
+AI_SYSTEM_CONSTITUTION.md
+design-qa.md
+.idea/
+.vscode/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+._*
