@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backend import config
 from backend.api import assets, auth, backup, photos, scan, settings, system, trash
@@ -180,6 +181,14 @@ def rate_limit_exceeded(_request: Request, exc: RateLimitExceeded):
 def http_error(_request: Request, exc: HTTPException):
     code = "unauthorized" if exc.status_code == 401 else "forbidden" if exc.status_code == 403 else "http_error"
     return _error_response(exc.status_code, code, _safe_http_message(exc.status_code), exc.headers)
+
+
+@app.exception_handler(StarletteHTTPException)
+def starlette_http_error(_request: Request, exc: StarletteHTTPException):
+    # Catches routing-level 404/405 so unknown /api/* routes use the uniform
+    # error envelope instead of FastAPI's default {"detail": ...}.
+    code = {404: "not_found", 405: "method_not_allowed"}.get(exc.status_code, "http_error")
+    return _error_response(exc.status_code, code, _safe_http_message(exc.status_code))
 
 
 @app.exception_handler(RequestValidationError)
