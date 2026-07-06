@@ -31,6 +31,7 @@ export const getPhotos = (page = 1, pageSize = 40) => api.get('/photos', { param
 export const getPhotoTimeline = (page = 1, pageSize = 60, filters = {}) => api.get('/photos/timeline', { params: { page, page_size: pageSize, ...filters } }).then(r => r.data)
 export const getRecentPhotos = (page = 1, pageSize = 40) => api.get('/photos/recent', { params: { page, page_size: pageSize } }).then(r => r.data)
 export const getFavoritePhotos = (page = 1, pageSize = 40) => api.get('/photos/favorites', { params: { page, page_size: pageSize } }).then(r => r.data)
+export const searchPhotos = (query, page = 1, pageSize = 40) => api.get('/photos/search', { params: { q: query, page, page_size: pageSize } }).then(r => r.data)
 export const setPhotoFavorite = (assetId, isFavorite) => api.patch(`/assets/${assetId}/favorite`, { is_favorite: isFavorite }).then(r => r.data)
 export const getTrash = () => api.get('/trash').then(r => r.data)
 export const restoreTrash = assetId => api.post(`/trash/${assetId}/restore`).then(r => r.data)

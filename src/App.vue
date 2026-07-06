@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   PhArchiveBox as ArchiveBox, PhArrowClockwise as ArrowClockwise,
   PhCaretRight as CaretRight, PhCloudArrowUp as CloudArrowUp,
@@ -22,7 +22,7 @@ import {
   getDashboard, getFiles, getMe, getPhotoTimeline, getPhotos, getRecentPhotos,
   getPreferences, getStorageLocations, getSystemInformation, getTrash,
   login, logout, makeDefaultStorage, permanentDeleteTrash, restoreTrash,
-  runBackupNow, saveBackupSettings, savePreferences, setPhotoFavorite,
+  runBackupNow, saveBackupSettings, savePreferences, searchPhotos, setPhotoFavorite,
   updateStorageLocation, uploadFiles,
 } from './api'
 import { locale, setLocale, t } from './locales'
@@ -103,6 +103,8 @@ const usernameDraft = ref('')
 const storageDraft = ref({ name: '', path: '', is_default: false })
 const editingStorageId = ref(null)
 const backupRunning = ref(false)
+let photoSearchTimer = null
+let photoRequestId = 0
 
 const isDashboard = computed(() => current.value === 'dashboard')
 const isTrash = computed(() => current.value === 'trash')
@@ -134,12 +136,7 @@ function mergePhotoItems(incoming, reset = false) {
     photoItems.value = [...photoItems.value, ...incoming.filter(item => !existingIds.has(item.id))]
     return
   }
-  const merged = new Map(incoming.map(item => [item.id, item]))
-  const timeField = current.value === 'recent' ? 'created_at' : 'taken_at'
-  photoItems.value = [...merged.values()].sort((a, b) => {
-    const timeDifference = Date.parse(b[timeField] || '') - Date.parse(a[timeField] || '')
-    return timeDifference || b.id.localeCompare(a.id)
-  })
+  photoItems.value = [...new Map(incoming.map(item => [item.id, item])).values()]
 }
 
 function friendlyError(e, fallback = 'errors.generic') {
@@ -177,13 +174,20 @@ async function loadTrash() {
   finally { loading.value = false }
 }
 async function loadPhotoView(reset = true) {
+  const requestId = ++photoRequestId
   if (reset) { photoPage.value = 1; photoItems.value = []; timelineGroups.value = [] }
   photoLoading.value = true; error.value = ''
   try {
     let data
-    if (current.value === 'timeline') {
+    if (search.value.trim()) {
+      data = await searchPhotos(search.value.trim(), photoPage.value, 40)
+      if (requestId !== photoRequestId) return
+      timelineGroups.value = []
+      mergePhotoItems(data.items || [], reset)
+    } else if (current.value === 'timeline') {
       const filters = timelinePeriod.value ? { period: timelinePeriod.value } : (timelineDate.value ? { date_from: timelineDate.value, date_to: timelineDate.value } : {})
       data = await getPhotoTimeline(photoPage.value, 60, filters)
+      if (requestId !== photoRequestId) return
       const incoming = data.groups || []
       if (!reset && timelineGroups.value.length && incoming.length && timelineGroups.value.at(-1).date === incoming[0].date) {
         timelineGroups.value.at(-1).items.push(...incoming[0].items)
@@ -192,12 +196,13 @@ async function loadPhotoView(reset = true) {
       photoItems.value = timelineGroups.value.flatMap(group => group.items)
     } else {
       data = current.value === 'recent' ? await getRecentPhotos(photoPage.value, 40) : await getPhotos(photoPage.value, 40)
+      if (requestId !== photoRequestId) return
       mergePhotoItems(data.items || [], reset)
     }
     photoHasMore.value = Boolean(data.has_more)
     photoTotal.value = data.total || 0
   } catch (e) { error.value = friendlyError(e) }
-  finally { photoLoading.value = false }
+  finally { if (requestId === photoRequestId) photoLoading.value = false }
 }
 async function loadMorePhotos() {
   if (!photoHasMore.value || photoLoading.value) return
@@ -446,8 +451,16 @@ async function handleLogout() {
 window.addEventListener('mynas-auth-required', () => { user.value = null })
 window.addEventListener('keydown', handleKeydown)
 window.addEventListener('popstate', () => { if (user.value) selectNav(routeFromPath(), false) })
+watch(search, () => {
+  if (!isPhotoView.value || !user.value) return
+  window.clearTimeout(photoSearchTimer)
+  photoSearchTimer = window.setTimeout(() => loadPhotoView(), 250)
+})
 onMounted(bootstrapAuth)
-onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown))
+onBeforeUnmount(() => {
+  window.clearTimeout(photoSearchTimer)
+  window.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <template>
@@ -530,11 +543,11 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown))
           <div v-if="photoLoading && !photoItems.length" class="photo-loading"><ArrowClockwise class="spin" :size="32" /><span>{{ t('photos.arranging') }}</span></div>
           <div v-else-if="!photoItems.length" class="photo-empty"><Image :size="52" weight="duotone" /><strong>{{ t('photos.empty') }}</strong><p>{{ t('photos.emptyText') }}</p><button class="primary" @click="showUpload = true"><UploadSimple :size="18" /> {{ t('photos.uploadFirst') }}</button></div>
 
-          <template v-else-if="current === 'timeline'">
+          <template v-else-if="current === 'timeline' && !search.trim()">
             <section v-for="group in timelineGroups" :id="`day-${group.date}`" :key="group.date" class="timeline-day">
               <div class="timeline-date"><span>{{ group.day }}</span><div><strong>{{ formatPhotoDay(group.date) }}</strong><small>{{ t('photos.count', { count: group.items.length }) }}</small></div></div>
               <div class="photo-masonry compact">
-                <article v-for="item in group.items.filter(photo => photo.name.toLowerCase().includes(search.toLowerCase()))" :key="item.id" :data-photo-id="item.id" :class="['library-photo', { selected: selectedPhotoIds.has(item.id), highlighted: highlightedPhotoId === item.id }]" @click="selectMode ? togglePhotoSelection(item) : openLightbox(item)">
+                <article v-for="item in group.items" :key="item.id" :data-photo-id="item.id" :class="['library-photo', { selected: selectedPhotoIds.has(item.id), highlighted: highlightedPhotoId === item.id }]" @click="selectMode ? togglePhotoSelection(item) : openLightbox(item)">
                   <img v-if="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.name" loading="lazy" :width="item.width || 480" :height="item.height || 360" />
                   <span v-else class="photo-placeholder"><Image :size="30" weight="duotone" /></span>
                   <button v-if="selectMode" class="select-photo-button" @click.stop="togglePhotoSelection(item)"><CheckSquare v-if="selectedPhotoIds.has(item.id)" :size="21" weight="fill" /><Square v-else :size="21" /></button>
@@ -546,7 +559,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown))
           </template>
 
           <div v-else class="photo-masonry">
-            <article v-for="item in photoItems.filter(photo => photo.name.toLowerCase().includes(search.toLowerCase()))" :key="item.id" :data-photo-id="item.id" :class="['library-photo', { selected: selectedPhotoIds.has(item.id), highlighted: highlightedPhotoId === item.id }]" @click="selectMode ? togglePhotoSelection(item) : openLightbox(item)">
+            <article v-for="item in photoItems" :key="item.id" :data-photo-id="item.id" :class="['library-photo', { selected: selectedPhotoIds.has(item.id), highlighted: highlightedPhotoId === item.id }]" @click="selectMode ? togglePhotoSelection(item) : openLightbox(item)">
               <img v-if="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.name" loading="lazy" :width="item.width || 480" :height="item.height || 360" />
               <span v-else class="photo-placeholder"><Image :size="30" weight="duotone" /></span>
               <button v-if="selectMode" class="select-photo-button" @click.stop="togglePhotoSelection(item)"><CheckSquare v-if="selectedPhotoIds.has(item.id)" :size="21" weight="fill" /><Square v-else :size="21" /></button>
@@ -660,7 +673,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown))
               <label>{{ t('settings.theme') }}<select v-model="preferences.theme"><option value="light">{{ t('settings.light') }}</option><option value="dark" disabled>{{ t('settings.darkReserved') }}</option></select></label>
               <label>{{ t('settings.defaultHome') }}<select v-model="preferences.default_home"><option value="photos">{{ t('nav.photos') }}</option><option value="timeline">{{ t('nav.timeline') }}</option><option value="recent">{{ t('nav.recent') }}</option><option value="dashboard">{{ t('nav.dashboard') }}</option></select></label>
               <label>{{ t('settings.defaultUpload') }}<select v-model="preferences.default_upload_directory"><option>Photos</option><option>Videos</option><option>Documents</option><option>Downloads</option><option>Backup</option></select></label>
-              <label>{{ t('settings.photoSort') }}<select v-model="preferences.photo_sort"><option value="taken_desc">{{ t('settings.newestTaken') }}</option><option value="taken_asc">{{ t('settings.oldestTaken') }}</option><option value="uploaded_desc">{{ t('settings.newestUploaded') }}</option></select></label>
+              <label>{{ t('settings.photoSort') }}<select v-model="preferences.photo_sort"><option value="newest">{{ t('settings.newestTaken') }}</option><option value="oldest">{{ t('settings.oldestTaken') }}</option><option value="name">{{ t('files.name') }}</option></select></label>
             </div>
             <button class="primary" @click="persistPreferences">{{ t('common.save') }}</button>
           </section>

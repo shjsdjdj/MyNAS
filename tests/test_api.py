@@ -5,6 +5,7 @@ import sqlite3
 from pathlib import Path
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -197,16 +198,53 @@ def test_incremental_backup_uses_assets_not_input_paths(tmp_path):
             "/api/upload", data={"parent_id": root_id},
             files={"files": ("backup.pdf", b"%PDF-1.4 backup", "application/pdf")},
         ).json()["uploaded"][0]
+        external_backup = tmp_path / "ExternalBackup"
+        from backend.db.database import set_setting
+        set_setting("backup_directory_1", str(external_backup))
         first = client.post("/api/backups/run").json()
         second = client.post("/api/backups/run").json()
         assert first["files_copied"] == 1
         assert second["files_copied"] == 0
+        backup_files = [
+            path for path in (external_backup / "1").rglob("*")
+            if path.is_file() and path.name != "manifest.json"
+        ]
+        assert len(backup_files) == 1
+        assert not any(
+            path.is_file() for path in (root / "Backup").rglob("*")
+        )
         # A local disk change is detected by recomputing SHA-256, not by trusting stale DB metadata.
         (root / "Storage" / "1" / uploaded["id"]).write_bytes(b"%PDF-1.4 changed")
         third = client.post("/api/backups/run").json()
         assert third["files_copied"] == 1
         assert client.post("/api/backups/run", json={"source_path": "C:\\Windows"}).status_code == 200
         assert "source_path" not in client.post("/api/backups/run", json={"source_path": "../../"}).json()
+
+
+def test_backup_failure_leaves_no_partial_snapshot_or_entries(tmp_path, monkeypatch):
+    client, root = build_client(tmp_path)
+    with client:
+        login(client)
+        root_id = photos_root(client)
+        client.post(
+            "/api/upload", data={"parent_id": root_id},
+            files={"files": ("atomic.pdf", b"%PDF-1.4 atomic", "application/pdf")},
+        )
+        external_backup = tmp_path / "AtomicBackup"
+        from backend.db.database import set_setting
+        import backend.services.backup_service as backups
+        set_setting("backup_directory_1", str(external_backup))
+        monkeypatch.setattr(backups.shutil, "copy2", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("copy failed")))
+
+        with pytest.raises(OSError, match="copy failed"):
+            backups.run_incremental_backup(1)
+
+        assert not list((external_backup / "1").glob("*"))
+        with sqlite3.connect(root / "Config" / "mynas.db") as db:
+            assert db.execute("SELECT COUNT(*) FROM backup_entries").fetchone()[0] == 0
+            assert db.execute(
+                "SELECT status FROM backup_logs ORDER BY id DESC LIMIT 1"
+            ).fetchone()[0] == "failed"
 
 
 def test_backup_schedule_is_persisted_and_audited(tmp_path):

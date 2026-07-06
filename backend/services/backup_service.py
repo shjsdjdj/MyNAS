@@ -1,21 +1,21 @@
 import json
+import os
 import shutil
+from pathlib import Path
 from uuid import uuid4
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from backend import config
 from backend.db.database import audit, connection, get_setting, set_setting, utc_now
 from backend.models.asset import Asset
-from backend.services.asset_service import create_file_asset, create_folder, ensure_root_folders, get_owned_asset
-from backend.storage.secure_storage import allocate_storage_path, validate_internal_path
+from backend.storage.secure_storage import validate_internal_path
 from backend.utils.files import sha256_file
 
 scheduler = BackgroundScheduler(daemon=True)
 
 
 def run_incremental_backup(user_id: int, ip_address: str = "scheduler") -> dict:
-    ensure_root_folders(user_id)
-    backup_root = _backup_root(user_id)
     started = utc_now()
     with connection() as conn:
         cursor = conn.execute(
@@ -24,35 +24,69 @@ def run_incremental_backup(user_id: int, ip_address: str = "scheduler") -> dict:
         log_id = cursor.lastrowid
     copied = 0
     bytes_copied = 0
+    stage = None
+    final_snapshot = None
     try:
+        backup_root = backup_destination(user_id)
+        user_root = backup_root / str(user_id)
+        user_root.mkdir(parents=True, exist_ok=True)
         sources = _source_assets(user_id)
         _refresh_source_hashes(user_id, sources)
         changed = [asset for asset in sources if _needs_backup(user_id, asset)]
-        snapshot = create_folder(user_id, started[:19].replace(":", "-"), backup_root.id) if changed else None
+        snapshot_name = started[:19].replace(":", "-") + f"-{uuid4().hex[:8]}"
+        entries: list[tuple[str, str, str, str]] = []
+        if changed:
+            stage = user_root / f".{snapshot_name}.tmp"
+            final_snapshot = user_root / snapshot_name
+            stage.mkdir(parents=False, exist_ok=False)
         for source in changed:
             source_path = validate_internal_path(user_id, source.storage_path)
             backup_id = str(uuid4())
-            destination = allocate_storage_path(user_id, backup_id)
+            destination = stage / backup_id
             shutil.copy2(source_path, destination)
-            backup_asset = create_file_asset(
-                user_id, backup_id, source.filename, destination, source.size,
-                source.hash or "", source.mime_type, snapshot.id,
-            )
-            with connection() as conn:
-                conn.execute(
-                    "INSERT INTO backup_entries(user_id,source_asset_id,backup_asset_id,source_hash,created_at) VALUES(?,?,?,?,?)",
-                    (user_id, source.id, backup_asset.id, source.hash, utc_now()),
-                )
+            copied_hash = sha256_file(destination)
+            if copied_hash != source.hash:
+                raise OSError(f"Backup integrity check failed for asset {source.id}")
+            relative_backup_id = f"{snapshot_name}/{backup_id}"
+            entries.append((source.id, relative_backup_id, source.hash or "", utc_now()))
             copied += 1
             bytes_copied += source.size
+
+        if changed:
+            manifest = {
+                "created_at": started,
+                "files": [
+                    {"source_asset_id": source_id, "backup_file": backup_id, "sha256": digest}
+                    for source_id, backup_id, digest, _created_at in entries
+                ],
+            }
+            manifest_path = stage / "manifest.json"
+            manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(stage, final_snapshot)
+            stage = None
+
         with connection() as conn:
+            conn.executemany(
+                "INSERT INTO backup_entries(user_id,source_asset_id,backup_asset_id,source_hash,created_at) "
+                "VALUES(?,?,?,?,?)",
+                [(user_id, *entry) for entry in entries],
+            )
             conn.execute(
                 "UPDATE backup_logs SET status='completed',files_copied=?,bytes_copied=?,finished_at=? WHERE id=?",
                 (copied, bytes_copied, utc_now(), log_id),
             )
-        audit("backup", ip_address, user_id, detail=f"{copied} files")
+        try:
+            audit("backup", ip_address, user_id, detail=f"{copied} files")
+        except Exception:
+            # Audit persistence must not turn a verified, committed snapshot
+            # into a false backup failure.
+            pass
         return {"id": log_id, "status": "completed", "files_copied": copied, "bytes_copied": bytes_copied}
     except Exception as exc:
+        if stage and stage.exists():
+            shutil.rmtree(stage, ignore_errors=True)
+        if final_snapshot and final_snapshot.exists():
+            shutil.rmtree(final_snapshot, ignore_errors=True)
         with connection() as conn:
             conn.execute("UPDATE backup_logs SET status='failed',detail=?,finished_at=? WHERE id=?", (str(exc), utc_now(), log_id))
         audit("backup_failed", ip_address, user_id, detail=str(exc)[:500])
@@ -118,12 +152,18 @@ def stop_scheduler():
         scheduler.shutdown(wait=False)
 
 
-def _backup_root(user_id: int) -> Asset:
-    with connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM assets WHERE user_id=? AND parent_id IS NULL AND filename='Backup' AND is_deleted=0", (user_id,)
-        ).fetchone()
-    return Asset.from_row(row)
+def validate_backup_destination(path: str) -> Path:
+    destination = Path(path).resolve()
+    internal = config.DATA_ROOT.resolve()
+    if destination == internal or internal in destination.parents or destination in internal.parents:
+        raise ValueError("Backup directory must be outside the MyNAS storage tree")
+    return destination
+
+
+def backup_destination(user_id: int) -> Path:
+    default = config.DATA_ROOT.parent / "MyNAS-Backup"
+    configured = get_setting(f"backup_directory_{user_id}", str(default))
+    return validate_backup_destination(configured)
 
 
 def _source_assets(user_id: int) -> list[Asset]:
@@ -142,10 +182,30 @@ def _source_assets(user_id: int) -> list[Asset]:
 def _needs_backup(user_id: int, asset: Asset) -> bool:
     with connection() as conn:
         row = conn.execute(
-            "SELECT source_hash FROM backup_entries WHERE user_id=? AND source_asset_id=? ORDER BY id DESC LIMIT 1",
+            "SELECT source_hash,backup_asset_id FROM backup_entries "
+            "WHERE user_id=? AND source_asset_id=? ORDER BY id DESC LIMIT 1",
             (user_id, asset.id),
         ).fetchone()
-    return not row or row["source_hash"] != asset.hash
+    if not row or row["source_hash"] != asset.hash:
+        return True
+    backup_file = _backup_entry_path(user_id, row["backup_asset_id"])
+    if backup_file is None:
+        return True
+    try:
+        return not backup_file.is_file() or sha256_file(backup_file) != asset.hash
+    except OSError:
+        return True
+
+
+def _backup_entry_path(user_id: int, relative_value: str) -> Path | None:
+    relative = Path(relative_value)
+    if relative.is_absolute() or ".." in relative.parts:
+        return None
+    user_root = (backup_destination(user_id) / str(user_id)).resolve()
+    candidate = (user_root / relative).resolve()
+    if user_root not in candidate.parents:
+        return None
+    return candidate
 
 
 def _refresh_source_hashes(user_id: int, assets: list[Asset]):

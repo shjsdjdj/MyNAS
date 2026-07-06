@@ -38,10 +38,10 @@ For every encountered file, the scanner:
 
 1. Resolves its parent Asset folder.
 2. Computes a stable Asset UUID from the Storage Location and relative path.
-3. Skips the file only when that exact stable Asset already exists.
-4. Computes SHA-256.
-5. Copies bytes to `Storage\<user_id>\<asset_uuid>`.
-6. Creates the Asset through the existing Asset service.
+3. Computes SHA-256 and compares it with the existing Asset.
+4. Creates new files, atomically replaces modified managed bytes, and refreshes metadata.
+5. Marks scanner-owned Assets as deleted when their source file disappears.
+6. Copies bytes to `Storage\<user_id>\<asset_uuid>` through a verified staging file.
 7. Generates a thumbnail and extracts EXIF best-effort for images.
 
 Executable files, unknown extensions, and same-content files at different paths are indexed. This behavior does not affect upload security.
@@ -64,6 +64,8 @@ No queue, Redis instance, message broker, or worker framework is involved.
 
 Registered-storage Assets use stable UUIDs derived from the location UUID and normalized relative path. Re-running a completed or interrupted scan does not create a second Asset for files already committed. The in-memory running guard naturally resets when the process restarts.
 
+Deletion reconciliation runs only after the source tree is successfully enumerated. An unavailable or disconnected drive therefore cannot cause a mass soft-delete.
+
 ## Failure handling
 
 - A failed file import removes a partially inserted Asset row.
@@ -74,7 +76,7 @@ Registered-storage Assets use stable UUIDs derived from the location UUID and no
 
 ## Legacy MyNAS directories
 
-The existing legacy importer scans the configured `Photos`, `Videos`, `Documents`, `Downloads`, and `Backup` roots beneath `MYNAS_ROOT`. It uses the same Asset and secure-storage boundaries but remains separate from registered external Storage Locations.
+The legacy importer scans the configured `Photos`, `Videos`, `Documents`, `Downloads`, and `Backup` roots beneath `MYNAS_ROOT`. v3.2 assigns deterministic identities and adopts byte-identical pre-v3.2 rows so repeated legacy scans remain idempotent.
 
 ## Security invariants
 

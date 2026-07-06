@@ -32,14 +32,14 @@ Adding a reachable external directory starts a background scan. An offline path 
 - Select the daily execution time.
 - View the latest run time and status.
 
-Backup scheduling is persisted in SQLite and restored when the application starts.
+The destination must be outside the MyNAS storage tree. Backups use verified external snapshots and never write backup payloads into internal UUID storage. Scheduling is persisted in SQLite and restored when the application starts.
 
 ## Preferences
 
-- Theme: Light. Dark mode is reserved and disabled in v3.1.
+- Theme: Light. Dark mode remains reserved and disabled in v3.2.
 - Default home: Photos, Timeline, Recent, or Overview.
 - Default upload directory: a secure root Asset folder.
-- Photo ordering: capture time descending, capture time ascending, or upload time descending.
+- Photo ordering: newest capture time, oldest capture time, or filename.
 
 ## System information
 

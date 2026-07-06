@@ -10,16 +10,16 @@ from uuid import uuid4
 
 from backend import config
 from backend.db.database import connection, get_setting, set_setting, utc_now
-from backend.services.backup_service import backup_logs, configure_daily_schedule
+from backend.services.backup_service import backup_logs, configure_daily_schedule, validate_backup_destination
 from backend.utils.files import size_label
 
-MYNAS_VERSION = "3.1.0"
+MYNAS_VERSION = "3.2.0"
 DEFAULT_PREFERENCES = {
     "language": "zh",
     "theme": "light",
     "default_home": "photos",
     "default_upload_directory": "Photos",
-    "photo_sort": "taken_desc",
+    "photo_sort": "newest",
 }
 
 
@@ -40,7 +40,13 @@ def get_preferences(user_id: int) -> dict:
         saved = json.loads(raw) if raw else {}
     except (TypeError, ValueError):
         saved = {}
-    return {**DEFAULT_PREFERENCES, **saved}
+    preferences = {**DEFAULT_PREFERENCES, **saved}
+    preferences["photo_sort"] = {
+        "taken_desc": "newest",
+        "taken_asc": "oldest",
+        "uploaded_desc": "newest",
+    }.get(preferences.get("photo_sort"), preferences.get("photo_sort", "newest"))
+    return preferences
 
 
 def update_preferences(user_id: int, changes: dict) -> dict:
@@ -50,12 +56,16 @@ def update_preferences(user_id: int, changes: dict) -> dict:
         "theme": {"light", "dark"},
         "default_home": {"photos", "timeline", "recent", "dashboard"},
         "default_upload_directory": {"Photos", "Videos", "Documents", "Downloads", "Backup"},
-        "photo_sort": {"taken_desc", "taken_asc", "uploaded_desc"},
+        "photo_sort": {"newest", "oldest", "name", "taken_desc", "taken_asc", "uploaded_desc"},
     }
     for key, value in changes.items():
         if value is not None:
             if value not in allowed[key]:
                 raise ValueError(f"Invalid preference: {key}")
+            if key == "photo_sort":
+                value = {
+                    "taken_desc": "newest", "taken_asc": "oldest", "uploaded_desc": "newest",
+                }.get(value, value)
             preferences[key] = value
     set_setting(f"preferences_{user_id}", json.dumps(preferences, ensure_ascii=False))
     return preferences
@@ -148,7 +158,7 @@ def backup_settings(user_id: int) -> dict:
         saved = {}
     logs = backup_logs(user_id, 1)
     return {
-        "directory": get_setting(f"backup_directory_{user_id}", str(config.DATA_ROOT / "Backup")),
+        "directory": get_setting(f"backup_directory_{user_id}", str(config.DATA_ROOT.parent / "MyNAS-Backup")),
         "enabled": bool(saved.get("enabled", False)),
         "daily_time": saved.get("daily_time", "02:00"),
         "last_backup_at": logs[0]["finished_at"] if logs else None,
@@ -163,6 +173,8 @@ def update_backup_settings(user_id: int, directory: str | None, enabled: bool | 
     next_time = daily_time or current["daily_time"]
     if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", next_time):
         raise ValueError("daily_time must use HH:MM")
+    if directory is not None or next_enabled:
+        validate_backup_destination(next_directory)
     set_setting(f"backup_directory_{user_id}", next_directory)
     configure_daily_schedule(user_id, next_time, next_enabled)
     return backup_settings(user_id)

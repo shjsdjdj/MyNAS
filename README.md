@@ -1,19 +1,29 @@
-# MyNAS v3.1
+# MyNAS v3.2
 
-**A Windows-native Personal Cloud for private photos and files.** MyNAS brings an iCloud Photos-style experience to a Windows PC while keeping storage, metadata, authentication, and backups under the owner's control.
+**A Windows-native personal cloud for managing your own photos and files—locally or remotely.** MyNAS brings an iCloud Photos-style experience to a Windows PC while keeping storage, metadata, authentication, and backups under the owner's control.
 
 ![MyNAS dashboard](docs/screenshots/dashboard.png)
 
 MyNAS is a self-hosted application—not a NAS operating system and not an admin-panel template. It combines a photo-first Vue interface with a FastAPI backend, SQLite metadata, secure UUID storage, and an Asset-based access model.
+
+## Why MyNAS exists
+
+MyNAS started from a personal need: I wanted to upload files to my own storage and manage my photo library when I was away from home, without giving that data to a third-party cloud service.
+
+My main machine already runs Windows. I did not want to replace it with a dedicated NAS operating system, maintain a Linux dual-boot setup, or rebuild the computer around a container-first stack. I wanted a personal cloud that felt native to the Windows machine I already owned. After looking around, I found that polished self-hosted storage projects with first-class Windows support were surprisingly rare, so I decided to build one.
+
+MyNAS is the result: a Windows-native personal cloud that keeps the local computer as the source of storage, adds a secure browser-based photo and file experience, and can be placed behind Cloudflare Tunnel for authenticated remote access.
+
+> **项目缘起：** 我想在外网环境中上传文件、管理自己的照片和 NAS 数据，但不想为此给 Windows 主机安装双系统，也不想把数据交给第三方网盘。由于真正重视 Windows 原生支持的开源个人云项目很少，所以我开始了 MyNAS。
 
 ## Highlights
 
 - Photo library, EXIF-aware timeline, recent uploads, favorites, and full-screen preview.
 - Drag-and-drop multi-file upload with progress, localized feedback, and automatic refresh.
 - Asset-based file browsing, download, soft deletion, restore, and permanent deletion.
-- Database-backed Windows Storage Locations with automatic background indexing.
+- Database-backed Windows Storage Locations with idempotent background reconciliation.
 - SHA-256 indexing, UUID storage names, thumbnails, and best-effort EXIF extraction.
-- Incremental backups with manual runs and APScheduler-based schedules.
+- SHA256-verified external backups with atomic snapshots and APScheduler schedules.
 - Dashboard metrics, recent activity, storage usage, backup state, and health status.
 - Settings Center for account, session, language, storage, backup, and preferences.
 - Simplified Chinese and English without a heavyweight internationalization framework.
@@ -60,7 +70,7 @@ Read [Architecture](docs/ARCHITECTURE.md), [Storage](docs/STORAGE.md), and [Scan
 - `storage_path` and thumbnail disk paths are never returned by public serializers.
 - Uploads enforce extension, MIME, signature, and size checks before Asset creation.
 - Uploaded files receive backend-generated UUID names and SHA-256 hashes.
-- Login and file operations are recorded in the audit log with time and client IP.
+- Login and file operations are recorded with user, action, and time; sensitive request data is redacted.
 
 See [Security Architecture](docs/SECURITY.md).
 
@@ -113,7 +123,7 @@ For remote access, keep Uvicorn bound to localhost and place it behind an authen
 
 ## Storage Locations
 
-Add an absolute Windows directory such as `F:\Photos` from Settings. MyNAS stores the location in SQLite and starts one background scan for the current user. The scanner recursively creates Assets, copies managed bytes into UUID storage, generates thumbnails and EXIF metadata best-effort, and makes photos available to Photos, Timeline, and Dashboard.
+Add an absolute Windows directory such as `F:\Photos` from Settings. MyNAS stores the location in SQLite and starts one background scan for the current user. The scanner reconciles new, modified, and deleted files, copies managed bytes into UUID storage, generates thumbnails and EXIF metadata best-effort, and makes photos available to Photos, Timeline, and Dashboard.
 
 If the drive is offline, the API preserves the location and returns `scan_required: true` instead of failing the Storage record. See [Storage](docs/STORAGE.md) and [Scan System](docs/SCAN_SYSTEM.md).
 
@@ -133,6 +143,7 @@ All paths below are relative to the same MyNAS origin.
 | `GET` | `/api/photos` | Read the paginated photo library |
 | `GET` | `/api/photos/timeline` | Read the EXIF-aware timeline |
 | `GET` | `/api/photos/recent` | Read recent uploads |
+| `GET` | `/api/photos/search?q=<text>` | Search all owned photo metadata |
 | `PATCH` | `/api/assets/{uuid}/favorite` | Update favorite state |
 | `GET` | `/api/trash` | List deleted Assets |
 | `POST` | `/api/backups/run` | Run an incremental backup |
@@ -160,6 +171,7 @@ The automated suite covers authentication boundaries, ownership isolation, uploa
 - [Scan System](docs/SCAN_SYSTEM.md)
 - [Internationalization](docs/I18N.md)
 - [Security](docs/SECURITY.md)
+- [v3.2.0 Release Notes](docs/RELEASE_v3.2.0.md)
 - [v3.1.0 Release Notes](docs/RELEASE_v3.1.0.md)
 - [Changelog](CHANGELOG.md)
 

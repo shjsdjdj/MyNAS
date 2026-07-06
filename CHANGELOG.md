@@ -2,6 +2,17 @@
 
 All notable changes to MyNAS are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses semantic versioning.
 
+## [3.2.0] — 2026-07-06
+
+### Fixed
+
+- Registered and legacy scans are idempotent and reconcile new, modified, and deleted source files.
+- Scanner file replacement uses verified staging copies and bounded IO retries.
+- Backups honor the configured external destination, verify SHA256 integrity, and publish snapshots atomically.
+- Photo search uses the database-backed API instead of filtering only loaded browser pages.
+- Persisted photo sorting controls the backend Photos, Favorites, and Search result order.
+- SQLite connections use an explicit busy timeout for concurrent scanner and upload writes.
+
 ## [3.1.1] — 2026-07-06
 
 ### Security

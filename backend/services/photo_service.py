@@ -1,7 +1,8 @@
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
+import json
 
-from backend.db.database import connection
+from backend.db.database import connection, get_setting
 from backend.models.asset import Asset
 from backend.services.asset_service import public_asset
 
@@ -17,6 +18,7 @@ def photos_page(
     recent: bool = False,
     date_from: str | None = None,
     date_to: str | None = None,
+    sort_mode: str | None = None,
 ) -> dict:
     clauses = ["user_id=?", "type='image'", "is_deleted=0"]
     params: list = [user_id]
@@ -29,12 +31,12 @@ def photos_page(
         clauses.append(f"{TAKEN_AT_SQL} <= ?")
         params.append(f"{date_to}T23:59:59" if len(date_to) == 10 else date_to)
     where = " AND ".join(clauses)
-    order = "created_at" if recent else TAKEN_AT_SQL
+    order = "created_at DESC,id DESC" if recent else _photo_order(user_id, sort_mode)
     offset = (page - 1) * page_size
     with connection() as conn:
         total = conn.execute(f"SELECT COUNT(*) FROM assets WHERE {where}", params).fetchone()[0]
         rows = conn.execute(
-            f"SELECT * FROM assets WHERE {where} ORDER BY {order} DESC,id DESC LIMIT ? OFFSET ?",
+            f"SELECT * FROM assets WHERE {where} ORDER BY {order} LIMIT ? OFFSET ?",
             [*params, page_size, offset],
         ).fetchall()
     items = [_photo_public(Asset.from_row(row)) for row in rows]
@@ -64,7 +66,11 @@ def timeline_page(
             date_to = today.isoformat()
         else:
             raise ValueError("period 仅支持 today 或 7d")
-    result = photos_page(user_id, page, page_size, date_from=date_from, date_to=date_to)
+    # Timeline is a chronological view by definition. The saved library sort
+    # still controls Photos, Favorites and Search without breaking date groups.
+    result = photos_page(
+        user_id, page, page_size, date_from=date_from, date_to=date_to, sort_mode="newest"
+    )
     groups: OrderedDict[str, list] = OrderedDict()
     for item in result.pop("items"):
         day = item["taken_at"][:10]
@@ -107,7 +113,7 @@ def search(
     with connection() as conn:
         total = conn.execute(f"SELECT COUNT(*) FROM assets WHERE {where}", params).fetchone()[0]
         rows = conn.execute(
-            f"SELECT * FROM assets WHERE {where} ORDER BY {TAKEN_AT_SQL} DESC,id DESC LIMIT ? OFFSET ?",
+            f"SELECT * FROM assets WHERE {where} ORDER BY {_photo_order(user_id)} LIMIT ? OFFSET ?",
             [*params, page_size, offset],
         ).fetchall()
     items = [_photo_public(Asset.from_row(row)) for row in rows]
@@ -118,3 +124,23 @@ def _photo_public(asset: Asset) -> dict:
     item = public_asset(asset)
     item["taken_at"] = asset.exif_datetime or asset.created_at
     return item
+
+
+def _photo_order(user_id: int, explicit: str | None = None) -> str:
+    mode = explicit
+    if mode is None:
+        raw = get_setting(f"preferences_{user_id}")
+        try:
+            mode = (json.loads(raw) if raw else {}).get("photo_sort", "newest")
+        except (TypeError, ValueError):
+            mode = "newest"
+    mode = {
+        "taken_desc": "newest",
+        "uploaded_desc": "newest",
+        "taken_asc": "oldest",
+    }.get(mode, mode)
+    return {
+        "newest": f"{TAKEN_AT_SQL} DESC,id DESC",
+        "oldest": f"{TAKEN_AT_SQL} ASC,id ASC",
+        "name": "lower(filename) ASC,id ASC",
+    }.get(mode, f"{TAKEN_AT_SQL} DESC,id DESC")

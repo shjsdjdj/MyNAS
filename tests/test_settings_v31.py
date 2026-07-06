@@ -54,11 +54,15 @@ def test_storage_locations_crud_default_capacity_and_ownership(tmp_path):
 
 
 def test_backup_daily_settings_and_system_information(tmp_path):
-    client, _ = build_client(tmp_path)
+    client, root = build_client(tmp_path)
     with client:
         login(client)
+        assert client.patch("/api/settings/backup", json={
+            "directory": str(root / "Backup"),
+        }).status_code == 400
+        external_backup = root.parent / "ExternalBackup"
         backup = client.patch("/api/settings/backup", json={
-            "directory": "G:\\Backup", "enabled": True, "daily_time": "03:30",
+            "directory": str(external_backup), "enabled": True, "daily_time": "03:30",
         })
         assert backup.status_code == 200
         assert backup.json()["enabled"] is True and backup.json()["daily_time"] == "03:30"
@@ -68,7 +72,7 @@ def test_backup_daily_settings_and_system_information(tmp_path):
         system = client.get("/api/settings/system")
         assert system.status_code == 200
         data = system.json()
-        assert data["mynas_version"] == "3.1.0"
+        assert data["mynas_version"] == "3.2.0"
         assert data["python_version"] and data["sqlite_version"]
         assert data["asset_count"] >= 5
         assert "storage_usage" in data

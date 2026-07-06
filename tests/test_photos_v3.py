@@ -149,3 +149,49 @@ def test_corrupt_image_rolls_back_file_asset_and_thumbnail(tmp_path):
         thumbnail_files = list((root / "Thumbnails" / "1").glob("*.jpg"))
         assert storage_files == []
         assert thumbnail_files == []
+
+
+def test_photo_sort_setting_controls_backend_results(tmp_path):
+    client, _ = build_client(tmp_path)
+    with client:
+        login(client)
+        parent = photos_root(client)
+        older = upload_photo(client, parent, "zebra.jpg", "#4b68f4", "2020:01:02 10:00:00")
+        newer = upload_photo(client, parent, "alpha.jpg", "#25abc0", "2025:06:03 12:00:00")
+
+        assert client.patch(
+            "/api/settings/preferences", json={"photo_sort": "oldest"}
+        ).status_code == 200
+        oldest = client.get("/api/photos", params={"page_size": 10}).json()["items"]
+        assert [item["id"] for item in oldest] == [older["id"], newer["id"]]
+
+        assert client.patch(
+            "/api/settings/preferences", json={"photo_sort": "name"}
+        ).status_code == 200
+        by_name = client.get("/api/photos", params={"page_size": 10}).json()["items"]
+        assert [item["name"] for item in by_name] == ["alpha.jpg", "zebra.jpg"]
+
+
+def test_photo_search_queries_database_tags_and_user_scope(tmp_path):
+    client, root = build_client(tmp_path)
+    with client:
+        login(client)
+        parent = photos_root(client)
+        upload_photo(client, parent, "ordinary.jpg", "#4b68f4", "2022:01:02 10:00:00")
+        target = upload_photo(client, parent, "hidden-result.jpg", "#25abc0", "2023:06:03 12:00:00")
+        assert client.patch(
+            f"/api/assets/{target['id']}/tags", json={"tags": ["summer-holiday"]}
+        ).status_code == 200
+
+        by_name = client.get("/api/photos/search", params={"q": "hidden-result"}).json()
+        by_tag = client.get("/api/photos/search", params={"q": "summer-holiday"}).json()
+        assert [item["id"] for item in by_name["items"]] == [target["id"]]
+        assert [item["id"] for item in by_tag["items"]] == [target["id"]]
+
+        with sqlite3.connect(root / "Config" / "mynas.db") as db:
+            db.execute(
+                "INSERT INTO users(username,password_hash,is_admin,created_at,updated_at) VALUES(?,?,?,?,?)",
+                ("search-viewer", hash_password("SearchPass123"), 0, "2026-01-01", "2026-01-01"),
+            )
+        login(client, "search-viewer", "SearchPass123")
+        assert client.get("/api/photos/search", params={"q": "hidden-result"}).json()["total"] == 0

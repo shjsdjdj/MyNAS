@@ -78,7 +78,7 @@ Photos and Timeline query SQLite Assets where `type='image'`. Capture time uses 
 
 ## Backup path
 
-The backup service reads owned, non-deleted Assets, validates internal storage paths, recomputes SHA-256, and copies only new or changed content. Scheduling uses APScheduler and persists configuration in SQLite.
+The backup service reads owned, non-deleted Assets, validates internal source paths, and writes only to a configured directory outside the MyNAS data tree. Each snapshot is staged in the destination, verified with SHA-256, atomically renamed, and only then committed to backup logs and entries. Scheduling uses APScheduler and persists configuration in SQLite.
 
 ## Security boundaries
 

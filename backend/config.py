@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 # Public deployment metadata and security controls.
-VERSION = os.getenv("MYNAS_VERSION", "v3.1.1")
+VERSION = os.getenv("MYNAS_VERSION", "v3.2.0")
 PUBLIC_URL = os.getenv("MYNAS_PUBLIC_URL", "").strip()
 ENVIRONMENT = os.getenv("MYNAS_ENV", "development").strip().lower()
 # Process start timestamp (monotonic, for uptime only — never wall-clock sensitive).
