@@ -8,13 +8,13 @@ MyNAS is a self-hosted application—not a NAS operating system and not an admin
 
 ## Why MyNAS exists
 
-MyNAS started from a personal need: I wanted to upload files to my own storage and manage my photo library when I was away from home, without giving that data to a third-party cloud service.
+MyNAS began with a practical storage problem on my own Windows PC. Over time, I had accumulated several SSDs and hard drives, with photos, documents, and important backups spread across them. I wanted one simple place to organize those disks, protect important data, and access my files and photo library through a browser when needed.
 
-My main machine already runs Windows. I did not want to replace it with a dedicated NAS operating system, maintain a Linux dual-boot setup, or rebuild the computer around a container-first stack. I wanted a personal cloud that felt native to the Windows machine I already owned. After looking around, I found that polished self-hosted storage projects with first-class Windows support were surprisingly rare, so I decided to build one.
+When I looked for an existing solution, I found that Windows-native NAS and personal-cloud projects were surprisingly limited. Some products that covered the features I needed required a paid license or subscription, while many self-hosted projects treated Windows as a secondary platform. I wanted a free and open-source option that could make better use of the Windows computer and storage drives I already owned.
 
-MyNAS is the result: a Windows-native personal cloud that keeps the local computer as the source of storage, adds a secure browser-based photo and file experience, and can be placed behind Cloudflare Tunnel for authenticated remote access.
+That is why I started MyNAS: a Windows-native personal cloud for bringing multiple drives, photos, files, and backups into one manageable system. The goal is to give Windows users a practical, free alternative for managing their own data locally while still supporting secure browser-based remote access.
 
-> **项目缘起：** 我想在外网环境中上传文件、管理自己的照片和 NAS 数据，但不想为此给 Windows 主机安装双系统，也不想把数据交给第三方网盘。由于真正重视 Windows 原生支持的开源个人云项目很少，所以我开始了 MyNAS。
+> **项目缘起：** 我的 Windows 主机上有多块固态硬盘和机械硬盘，照片、文件和备份数据分散在不同硬盘里。我需要一个能够统一管理这些存储、保护重要数据，并在需要时通过浏览器访问的个人云系统。但真正针对 Windows 原生环境的 NAS 和个人云项目很少，部分能够满足需求的方案还需要付费。因此，我开始制作 MyNAS，希望它成为一个免费、开源、适合 Windows 用户的照片、文件与备份管理工具。
 
 ## Highlights
 
