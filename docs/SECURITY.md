@@ -4,13 +4,13 @@ MyNAS v3.1 uses a deny-by-default, Asset-centered security model. The applicatio
 
 ## Authentication
 
-Every valid API except `POST /api/auth/login` requires a JWT. The token may be sent through an HttpOnly, SameSite=Strict cookie or an `Authorization: Bearer` header. Missing, expired, or unknown-user sessions return `401`.
+Every API except `POST /api/auth/login` (and the reserved registration path) is denied by a global boundary unless it has a valid JWT in the HttpOnly, SameSite=Strict cookie. Bearer tokens and browser storage are not accepted. Missing, expired, revoked, or unknown-user sessions return `401`.
 
-Login attempts are rate-limited by client IP. A default local-development password must be changed after login; shared deployments should set a strong `MYNAS_ADMIN_PASSWORD` before the first start.
+All API traffic is rate-limited in memory, with a stricter failed-login limiter. Non-upload request bodies are capped separately from streamed uploads. A default local-development password must be changed after login; shared deployments should set a strong `MYNAS_ADMIN_PASSWORD` before the first start.
 
 ## Authorization
 
-Every Asset belongs to a `user_id`. Download, delete, restore, thumbnail, favorite, tag, backup, and listing operations resolve the authenticated user and verify Asset ownership. Cross-user access returns `403`.
+Every Asset belongs to a `user_id`. Download, delete, restore, thumbnail, favorite, tag, backup, and listing operations resolve the authenticated user and include `user_id` in queries. Cross-user IDs are treated as missing resources.
 
 Storage Location records are also user-owned. Their paths are configuration data for the trusted scanner, not download paths.
 
@@ -51,12 +51,15 @@ SQLite queries use bound parameters. Asset IDs and Storage Location IDs are UUID
 
 ## Audit trail
 
-Audit records cover login success and failure, logout, upload, download, delete, restore, permanent deletion, favorites, tags, Storage changes, scans, backups, and scheduling. Records include user, Asset where applicable, client IP, UTC timestamp, and detail text.
+Audit records cover security-relevant action types and retain only `user_id`, action, and UTC time. Existing compatibility columns are written with redacted or empty values. Passwords, cookies, tokens, filenames, request details, and IP headers are not persisted.
 
 ## Deployment guidance
 
 - Bind Uvicorn to `127.0.0.1` unless LAN exposure is intentional.
 - Use HTTPS for remote access and set `MYNAS_COOKIE_SECURE=true`.
+- Set `MYNAS_ENV=production`, `MYNAS_PUBLIC_URL=https://<host>`, and an explicit `MYNAS_CORS_ORIGINS`; production startup rejects wildcard CORS and insecure cookies.
+- Proxy IP headers are ignored unless the immediate proxy IP is explicitly listed in `MYNAS_TRUSTED_PROXY_IPS`.
+- Point Cloudflare Tunnel at `http://127.0.0.1:8000` after building the Vue frontend; do not expose the Vite development server.
 - Keep `Config\jwt-secret.key`, `Config\mynas.db`, backup data, and Cloudflare credentials out of source control.
 - Protect the Windows account and volumes hosting MyNAS.
 - Treat Storage Location registration as privileged local-host configuration.

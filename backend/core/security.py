@@ -61,19 +61,51 @@ def create_access_token(user_id: int, username: str) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user_id), "username": username, "iat": now,
-        "exp": now + timedelta(hours=config.JWT_EXPIRE_HOURS),
+        "exp": now + timedelta(hours=config.JWT_EXPIRE_HOURS), "jti": secrets.token_urlsafe(24),
     }
     return jwt.encode(payload, jwt_secret(), algorithm=config.JWT_ALGORITHM)
 
 
 def decode_access_token(token: str) -> dict:
-    return jwt.decode(token, jwt_secret(), algorithms=[config.JWT_ALGORITHM])
+    return jwt.decode(
+        token,
+        jwt_secret(),
+        algorithms=[config.JWT_ALGORITHM],
+        leeway=config.JWT_LEEWAY_SECONDS,
+        options={"require": ["sub", "iat", "exp"], "verify_signature": True, "verify_exp": True, "verify_iat": True},
+    )
+
+
+def token_fingerprint(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def revoke_access_token(token: str, expires_at: int | float):
+    from backend.db.database import set_setting
+    set_setting(f"revoked_token_{token_fingerprint(token)}", str(int(expires_at)))
+
+
+def access_token_is_revoked(token: str) -> bool:
+    from backend.db.database import connection, get_setting
+    key = f"revoked_token_{token_fingerprint(token)}"
+    expires_at = get_setting(key)
+    if not expires_at:
+        return False
+    try:
+        expired = int(expires_at) < int(time.time())
+    except ValueError:
+        return True
+    if expired:
+        with connection() as conn:
+            conn.execute("DELETE FROM settings WHERE key=?", (key,))
+        return False
+    return True
 
 
 def client_ip(request: Request) -> str:
     peer = request.client.host if request.client else "unknown"
     candidate = peer
-    if peer in {"127.0.0.1", "::1"}:
+    if peer in config.TRUSTED_PROXY_IPS:
         cf_ip = request.headers.get("cf-connecting-ip")
         x_forwarded = request.headers.get("x-forwarded-for")
         
@@ -163,3 +195,29 @@ class LoginRateLimiter:
 
 
 login_rate_limiter = LoginRateLimiter()
+
+
+class GlobalRateLimiter:
+    """Bounded sliding-window limiter for every API request."""
+
+    def __init__(self, max_requests: int, window_seconds: int):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self._requests: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def check(self, key: str):
+        now = time.monotonic()
+        cutoff = now - self.window_seconds
+        with self._lock:
+            requests = [stamp for stamp in self._requests.get(key, []) if stamp > cutoff]
+            if len(requests) >= self.max_requests:
+                retry_after = int(requests[0] + self.window_seconds - now) + 1
+                raise RateLimitExceeded(retry_after)
+            requests.append(now)
+            self._requests[key] = requests
+            if len(self._requests) > 10_000:
+                self._requests = {item: stamps for item, stamps in self._requests.items() if stamps[-1] > cutoff}
+
+
+global_rate_limiter = GlobalRateLimiter(config.RATE_LIMIT_REQUESTS, config.RATE_LIMIT_WINDOW_SECONDS)

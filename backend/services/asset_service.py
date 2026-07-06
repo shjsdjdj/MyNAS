@@ -69,12 +69,10 @@ def create_file_asset(
 
 def get_owned_asset(asset_id: str, user_id: int, include_deleted: bool = False) -> Asset:
     with connection() as conn:
-        row = conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
+        row = conn.execute("SELECT * FROM assets WHERE id=? AND user_id=?", (asset_id, user_id)).fetchone()
     if not row:
         raise FileNotFoundError("资产不存在")
     asset = Asset.from_row(row)
-    if asset.user_id != user_id:
-        raise AssetForbidden("无权访问此资产")
     if asset.is_deleted and not include_deleted:
         raise FileNotFoundError("资产不存在")
     return asset
@@ -125,8 +123,8 @@ def delete_asset(user_id: int, asset_id: str):
         conn.execute(
             "WITH RECURSIVE descendants(id) AS (SELECT id FROM assets WHERE id=? AND user_id=? UNION ALL "
             "SELECT a.id FROM assets a JOIN descendants d ON a.parent_id=d.id WHERE a.user_id=?) "
-            "UPDATE assets SET is_deleted=1,deleted_at=?,updated_at=? WHERE id IN (SELECT id FROM descendants)",
-            (asset_id, user_id, user_id, utc_now(), utc_now()),
+            "UPDATE assets SET is_deleted=1,deleted_at=?,updated_at=? WHERE id IN (SELECT id FROM descendants) AND user_id=?",
+            (asset_id, user_id, user_id, utc_now(), utc_now(), user_id),
         )
     return get_owned_asset(asset_id, user_id, include_deleted=True)
 
@@ -137,8 +135,8 @@ def restore_asset(user_id: int, asset_id: str):
         conn.execute(
             "WITH RECURSIVE descendants(id) AS (SELECT id FROM assets WHERE id=? AND user_id=? UNION ALL "
             "SELECT a.id FROM assets a JOIN descendants d ON a.parent_id=d.id WHERE a.user_id=?) "
-            "UPDATE assets SET is_deleted=0,deleted_at=NULL,updated_at=? WHERE id IN (SELECT id FROM descendants)",
-            (asset_id, user_id, user_id, utc_now()),
+            "UPDATE assets SET is_deleted=0,deleted_at=NULL,updated_at=? WHERE id IN (SELECT id FROM descendants) AND user_id=?",
+            (asset_id, user_id, user_id, utc_now(), user_id),
         )
     return get_owned_asset(asset_id, user_id)
 
@@ -151,8 +149,8 @@ def permanent_delete_asset(user_id: int, asset_id: str):
         rows = conn.execute(
             "WITH RECURSIVE descendants(id) AS (SELECT id FROM assets WHERE id=? AND user_id=? UNION ALL "
             "SELECT a.id FROM assets a JOIN descendants d ON a.parent_id=d.id WHERE a.user_id=?) "
-            "SELECT id,storage_path,type,thumbnail_storage_path FROM assets WHERE id IN (SELECT id FROM descendants)",
-            (asset_id, user_id, user_id),
+            "SELECT id,storage_path,type,thumbnail_storage_path FROM assets WHERE id IN (SELECT id FROM descendants) AND user_id=?",
+            (asset_id, user_id, user_id, user_id),
         ).fetchall()
         
     for row in rows:
@@ -171,8 +169,8 @@ def permanent_delete_asset(user_id: int, asset_id: str):
         conn.execute(
             "WITH RECURSIVE descendants(id) AS (SELECT id FROM assets WHERE id=? AND user_id=? UNION ALL "
             "SELECT a.id FROM assets a JOIN descendants d ON a.parent_id=d.id WHERE a.user_id=?) "
-            "DELETE FROM assets WHERE id IN (SELECT id FROM descendants)",
-            (asset_id, user_id, user_id),
+            "DELETE FROM assets WHERE id IN (SELECT id FROM descendants) AND user_id=?",
+            (asset_id, user_id, user_id, user_id),
         )
     return asset
 
@@ -183,7 +181,7 @@ def list_trash(user_id: int) -> list[dict]:
         # This gives us the top-level trash items.
         rows = conn.execute(
             "SELECT a.* FROM assets a "
-            "LEFT JOIN assets p ON a.parent_id = p.id "
+            "LEFT JOIN assets p ON a.parent_id = p.id AND p.user_id=a.user_id "
             "WHERE a.user_id=? AND a.is_deleted=1 AND (a.parent_id IS NULL OR p.is_deleted=0 OR p.id IS NULL) "
             "ORDER BY a.deleted_at DESC", (user_id,)
         ).fetchall()
@@ -194,7 +192,7 @@ def empty_trash(user_id: int):
     with connection() as conn:
         rows = conn.execute(
             "SELECT a.id FROM assets a "
-            "LEFT JOIN assets p ON a.parent_id = p.id "
+            "LEFT JOIN assets p ON a.parent_id = p.id AND p.user_id=a.user_id "
             "WHERE a.user_id=? AND a.is_deleted=1 AND (a.parent_id IS NULL OR p.is_deleted=0 OR p.id IS NULL)",
             (user_id,)
         ).fetchall()
@@ -214,11 +212,11 @@ def dashboard_categories(user_id: int) -> list[dict]:
         for root_row in roots:
             root = Asset.from_row(root_row)
             totals = conn.execute(
-                "WITH RECURSIVE tree(id,size,type) AS (SELECT id,size,type FROM assets WHERE id=? AND is_deleted=0 "
-                "UNION ALL SELECT a.id,a.size,a.type FROM assets a JOIN tree t ON a.parent_id=t.id WHERE a.is_deleted=0) "
+                "WITH RECURSIVE tree(id,size,type) AS (SELECT id,size,type FROM assets WHERE id=? AND user_id=? AND is_deleted=0 "
+                "UNION ALL SELECT a.id,a.size,a.type FROM assets a JOIN tree t ON a.parent_id=t.id WHERE a.user_id=? AND a.is_deleted=0) "
                 "SELECT COUNT(CASE WHEN type!='folder' THEN 1 END) AS count, "
                 "COALESCE(SUM(CASE WHEN type!='folder' THEN size ELSE 0 END),0) AS size FROM tree",
-                (root.id,),
+                (root.id, user_id, user_id),
             ).fetchone()
             output.append({"id": root.id, "name": root.filename, "count": totals["count"], "size": totals["size"], "size_label": size_label(totals["size"])})
     order = {name: i for i, name in enumerate(ROOT_NAMES)}

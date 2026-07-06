@@ -2,6 +2,28 @@
 
 All notable changes to MyNAS are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses semantic versioning.
 
+## [3.1.1] — 2026-07-06
+
+### Security
+- Application-level hardening ahead of public Cloudflare Tunnel release.
+- Strict JWT validation: `sub`/`iat`/`exp` required, signature + expiry + issuance verified, configurable clock leeway, per-token `jti`.
+- Logout now revokes the active token (fingerprint persisted, auto-pruned after expiry); a logged-out cookie can no longer be reused.
+- Authentication is cookie-only for browser clients — the `Authorization: Bearer` fallback has been removed.
+- Bounded global rate limiter on every `/api/*` request and the public `/health` probe.
+- Request size limit middleware rejects oversized bodies (`413`) before parsing, with a higher ceiling for `/api/upload`.
+- Uniform error envelope `{"error":{"code","message"}}` across all handlers; stack traces never reach the client.
+- Sensitive path segments (`config`, `storage`, `.db`, `.key`, `.env`, …) are blocked at the SPA fallback boundary.
+- Security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, CSP `frame-ancestors`, HSTS in production) applied at the edge.
+- `MYNAS_ENV=production` now refuses to start with wildcard CORS or insecure cookies.
+
+### Changed
+- Public liveness probe `GET /health` returns the minimal `{"status":"ok"}` shape with no internal details.
+- `client_ip` trusts forwarding headers only when the peer is listed in `MYNAS_TRUSTED_PROXY_IPS`.
+- Cloudflare tunnel template targets the production FastAPI origin `http://127.0.0.1:8000`.
+
+### Compatibility
+- No API surface removed. Clients relying on the removed Bearer fallback must send credentials via the `mynas_token` cookie. The authenticated `GET /api/health` is unaffected.
+
 ## [3.1.0] — 2026-07-05
 
 ### Added

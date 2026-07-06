@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api", tags=["system"])
 
 @router.get("/health")
 def health(user: dict = Depends(active_user)):
-    return {"status": "online", "mode": "secure", "user_id": user["id"]}
+    return {"status": "ok"}
 
 
 @router.get("/dashboard")

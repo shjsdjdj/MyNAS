@@ -79,8 +79,8 @@ def test_favorite_toggle_listing_and_ownership(tmp_path):
             )
             db.commit()
         login(client, "photo-viewer", "PhotoPass123")
-        assert client.patch(f"/api/asset/{asset['id']}/favorite", json={"is_favorite": False}).status_code == 403
-        assert client.get(f"/api/asset/{asset['id']}/thumbnail").status_code == 403
+        assert client.patch(f"/api/asset/{asset['id']}/favorite", json={"is_favorite": False}).status_code == 404
+        assert client.get(f"/api/asset/{asset['id']}/thumbnail").status_code == 404
 
 
 def test_multi_upload_duplicate_keeps_one_asset_per_file(tmp_path):

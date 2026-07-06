@@ -57,7 +57,7 @@ class AssetPublic(BaseModel):
 
 
 class FolderCreateRequest(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=255)
     parent_id: str | None = None
 
 

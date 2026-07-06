@@ -160,10 +160,12 @@ def initialize_database():
 
 
 def audit(action: str, ip_address: str, user_id: int | None = None, asset_id: str | None = None, detail: str = ""):
+    # Keep the existing schema for compatibility, but never persist IPs,
+    # filenames, request details, credentials, tokens, or cookies.
     with connection() as conn:
         conn.execute(
             "INSERT INTO audit_logs(user_id,action,asset_id,ip_address,detail,created_at) VALUES(?,?,?,?,?,?)",
-            (user_id, action, asset_id, ip_address, detail, utc_now()),
+            (user_id, action[:64], None, "redacted", "", utc_now()),
         )
 
 

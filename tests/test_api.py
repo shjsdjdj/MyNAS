@@ -165,8 +165,8 @@ def test_cross_user_asset_access_is_forbidden(tmp_path):
         database.commit()
         database.close()
         login(client, "other", "other-password")
-        assert client.get(f"/api/asset/{asset_id}").status_code == 403
-        assert client.delete(f"/api/asset/{asset_id}").status_code == 403
+        assert client.get(f"/api/asset/{asset_id}").status_code == 404
+        assert client.delete(f"/api/asset/{asset_id}").status_code == 404
 
 
 def test_thumbnail_timeline_and_database_driven_listing(tmp_path):

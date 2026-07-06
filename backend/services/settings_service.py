@@ -122,12 +122,11 @@ def set_default_storage(user_id: int, location_id: str) -> dict:
 
 def get_storage_location(user_id: int, location_id: str) -> dict:
     with connection() as conn:
-        row = conn.execute("SELECT * FROM storage_locations WHERE id=?", (location_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM storage_locations WHERE id=? AND user_id=?", (location_id, user_id)
+        ).fetchone()
     if not row:
         raise FileNotFoundError("Storage location not found")
-    if row["user_id"] != user_id:
-        from backend.services.asset_service import AssetForbidden
-        raise AssetForbidden("Storage location access denied")
     return _storage_public(dict(row))
 
 

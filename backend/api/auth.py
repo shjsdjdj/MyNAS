@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 
 from backend import config
 from backend.api.dependencies import current_user
-from backend.core.security import COOKIE_NAME, client_ip, login_rate_limiter
+from backend.core.security import COOKIE_NAME, client_ip, decode_access_token, login_rate_limiter, revoke_access_token
 from backend.db.database import audit, get_setting, set_setting
 from backend.models.auth import ChangePasswordRequest, LoginRequest
 from backend.services.auth_service import authenticate, change_password
@@ -33,9 +33,18 @@ def login(payload: LoginRequest, request: Request, response: Response):
 
 
 @router.post("/logout")
-def logout(request: Request, response: Response, user: dict = Depends(current_user)):
+def logout(
+    request: Request,
+    response: Response,
+    user: dict = Depends(current_user),
+    cookie_token: str = Cookie(alias=COOKIE_NAME),
+):
+    payload = decode_access_token(cookie_token)
+    revoke_access_token(cookie_token, payload["exp"])
     audit("logout", client_ip(request), user["id"])
-    response.delete_cookie(COOKIE_NAME, path="/")
+    response.delete_cookie(
+        COOKIE_NAME, path="/", httponly=True, secure=config.COOKIE_SECURE, samesite="strict"
+    )
     return {"ok": True}
 
 

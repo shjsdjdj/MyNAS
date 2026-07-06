@@ -131,10 +131,10 @@ def _source_assets(user_id: int) -> list[Asset]:
         rows = conn.execute(
             "WITH RECURSIVE tree(id,root_name) AS ("
             "SELECT id,filename FROM assets WHERE user_id=? AND parent_id IS NULL AND is_deleted=0 "
-            "UNION ALL SELECT a.id,t.root_name FROM assets a JOIN tree t ON a.parent_id=t.id WHERE a.is_deleted=0) "
+            "UNION ALL SELECT a.id,t.root_name FROM assets a JOIN tree t ON a.parent_id=t.id WHERE a.user_id=? AND a.is_deleted=0) "
             "SELECT a.* FROM assets a JOIN tree t ON a.id=t.id WHERE a.user_id=? AND a.type!='folder' "
             "AND a.is_deleted=0 AND t.root_name!='Backup' AND a.hash IS NOT NULL",
-            (user_id, user_id),
+            (user_id, user_id, user_id),
         ).fetchall()
     return [Asset.from_row(row) for row in rows]
 

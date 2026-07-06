@@ -19,7 +19,7 @@ cloudflared tunnel ingress rule https://mynas.example.com
 cloudflared tunnel run <TUNNEL-NAME>
 ```
 
-映射关系：`https://mynas.example.com` → `http://localhost:5173`。
+生产映射关系：`https://mynas.example.com` → `http://127.0.0.1:8000`。先运行 `npm run build`，由 FastAPI 提供构建后的 Vue SPA；不要把 Vite 开发服务器暴露到 Tunnel。
 
 安全建议：在 Cloudflare Zero Trust 中为该域名创建 Self-hosted Access 应用。MyNAS 自身的 JWT 登录仍然保留，形成两层认证。不要把 `credentials-file` 或 Tunnel Token 提交到项目目录。
 

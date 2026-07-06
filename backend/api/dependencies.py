@@ -1,23 +1,22 @@
-from fastapi import Cookie, Depends, Header, HTTPException, status
+from fastapi import Cookie, Depends, HTTPException, status
 from jwt import InvalidTokenError
 
-from backend.core.security import COOKIE_NAME, decode_access_token
+from backend.core.security import COOKIE_NAME, access_token_is_revoked, decode_access_token
 from backend.services.auth_service import get_user
 
 
 def current_user(
-    authorization: str | None = Header(default=None),
     cookie_token: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ) -> dict:
     token = cookie_token
-    if authorization and authorization.lower().startswith("bearer "):
-        token = authorization[7:].strip()
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "需要登录")
     try:
         payload = decode_access_token(token)
         user_id = int(payload["sub"])
     except (InvalidTokenError, KeyError, ValueError, TypeError):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "登录已失效")
+    if access_token_is_revoked(token):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "登录已失效")
     user = get_user(user_id)
     if not user:
@@ -27,7 +26,7 @@ def current_user(
         "session": {
             "issued_at": payload.get("iat"),
             "expires_at": payload.get("exp"),
-            "auth_type": "cookie" if cookie_token and token == cookie_token else "bearer",
+            "auth_type": "cookie",
         },
     }
 

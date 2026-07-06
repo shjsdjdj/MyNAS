@@ -4,7 +4,7 @@ credentials-file: C:\Users\<WINDOWS-USERNAME>\.cloudflared\<TUNNEL-UUID>.json
 
 ingress:
   - hostname: mynas.example.com
-    service: http://localhost:5173
+    service: http://127.0.0.1:8000
     originRequest:
       connectTimeout: 30s
       noTLSVerify: false

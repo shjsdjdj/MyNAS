@@ -50,7 +50,7 @@ def test_storage_locations_crud_default_capacity_and_ownership(tmp_path):
             )
             db.commit()
         login(client, "settings-viewer", "ViewerPass123")
-        assert client.patch(f"/api/settings/storage/{location['id']}", json={"name": "stolen"}).status_code == 403
+        assert client.patch(f"/api/settings/storage/{location['id']}", json={"name": "stolen"}).status_code == 404
 
 
 def test_backup_daily_settings_and_system_information(tmp_path):
