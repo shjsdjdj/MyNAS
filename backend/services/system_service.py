@@ -1,4 +1,4 @@
-import os
+import socket
 import shutil
 
 from backend import config
@@ -23,7 +23,7 @@ def dashboard(user_id: int) -> dict:
         ).fetchall()
     latest_backup = backup_logs(user_id, 1)
     return {
-        "device_name": os.environ.get("COMPUTERNAME", "Windows NAS"),
+        "device_name": _device_name(),
         "data_root": "MyNAS Secure Storage",
         "disk": {
             "total": disk.total, "used": disk.used, "free": disk.free,
@@ -47,3 +47,10 @@ def dashboard(user_id: int) -> dict:
             for row in recent_audit_logs(user_id, 8)
         ],
     }
+
+
+def _device_name() -> str:
+    try:
+        return socket.gethostname().strip() or "MyNAS Node"
+    except OSError:
+        return "MyNAS Node"

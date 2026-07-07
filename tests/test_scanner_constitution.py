@@ -2,7 +2,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -65,12 +65,13 @@ def test_startup_resumes_default_registered_storage_scan(tmp_path, monkeypatch):
     with client:
         login(client)
         location_id = str(uuid4())
+        configured_path = str(tmp_path / "ConfiguredPhotoSource")
         with sqlite3.connect(root / "Config" / "mynas.db") as db:
             db.execute("UPDATE storage_locations SET is_default=0 WHERE user_id=1")
             db.execute(
                 "INSERT INTO storage_locations(id,user_id,name,path,is_default,created_at,updated_at) "
-                "VALUES(?,1,'Photo Disk','F:\\Photos',1,'2026-01-01','2026-01-01')",
-                (location_id,),
+                "VALUES(?,1,'Photo Disk',?,1,'2026-01-01','2026-01-01')",
+                (location_id, configured_path),
             )
 
         import backend.services.scan_service as scanner
@@ -135,6 +136,46 @@ def test_registered_scanner_reconciles_modified_and_deleted_files_idempotently(t
             assert db.execute(
                 "SELECT is_deleted FROM assets WHERE id=?", (after[0],)
             ).fetchone()[0] == 1
+
+
+def test_linux_scanner_migrates_previous_case_folded_identity(tmp_path, monkeypatch):
+    client, root = build_client(tmp_path)
+    source_root = tmp_path / "LinuxCaseSource"
+    source_root.mkdir()
+    source_file = source_root / "Photo.BIN"
+    source_file.write_bytes(b"case migration")
+    location_id = str(uuid4())
+    with client:
+        login(client)
+        with sqlite3.connect(root / "Config" / "mynas.db") as db:
+            db.execute(
+                "INSERT INTO storage_locations(id,user_id,name,path,is_default,created_at,updated_at) "
+                "VALUES(?,1,'Linux Case Source',?,0,'2026-01-01','2026-01-01')",
+                (location_id, str(source_root)),
+            )
+
+        import backend.services.scan_service as scanner
+
+        monkeypatch.setattr(scanner.platform, "system", lambda: "Windows")
+        assert scanner._scan_registered_storage(1, location_id)["imported"] == 1
+        with sqlite3.connect(root / "Config" / "mynas.db") as db:
+            previous_id = db.execute(
+                "SELECT id FROM assets WHERE filename='Photo.BIN' AND is_deleted=0"
+            ).fetchone()[0]
+
+        monkeypatch.setattr(scanner.platform, "system", lambda: "Linux")
+        expected_id = scanner._scanner_asset_id(UUID(location_id), "Photo.BIN")
+        assert expected_id != previous_id
+        result = scanner._scan_registered_storage(1, location_id)
+        assert result["imported"] == 0 and result["skipped_existing"] == 1
+        with sqlite3.connect(root / "Config" / "mynas.db") as db:
+            rows = db.execute(
+                "SELECT id FROM assets WHERE filename='Photo.BIN' AND is_deleted=0"
+            ).fetchall()
+        assert rows == [(expected_id,)]
+
+        source_file.unlink()
+        assert scanner._scan_registered_storage(1, location_id)["deleted"] == 1
 
 
 def test_legacy_scanner_is_idempotent(tmp_path):

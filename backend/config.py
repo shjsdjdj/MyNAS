@@ -1,16 +1,29 @@
 import os
+import platform
 import time
 from pathlib import Path
 from urllib.parse import urlparse
 
 # Public deployment metadata and security controls.
-VERSION = os.getenv("MYNAS_VERSION", "v3.2.0")
+VERSION = os.getenv("MYNAS_VERSION", "v3.2.5")
 PUBLIC_URL = os.getenv("MYNAS_PUBLIC_URL", "").strip()
 ENVIRONMENT = os.getenv("MYNAS_ENV", "development").strip().lower()
 # Process start timestamp (monotonic, for uptime only — never wall-clock sensitive).
 START_MONOTONIC = time.monotonic()
 
-DATA_ROOT = Path(os.getenv("MYNAS_ROOT", r"E:\MyNAS"))
+
+def _default_data_root() -> Path:
+    if platform.system() == "Windows":
+        return Path(r"E:\MyNAS")
+    return Path.home() / "MyNAS"
+
+
+def _resolve_data_root() -> Path:
+    configured_root = os.getenv("MYNAS_ROOT", "").strip()
+    return Path(configured_root).expanduser() if configured_root else _default_data_root()
+
+
+DATA_ROOT = _resolve_data_root()
 DATA_DIRECTORIES = (
     "Photos", "Videos", "Documents", "Downloads", "Backup",
     "Users", "Config", "Logs", "Temp", "Thumbnails", "Storage",

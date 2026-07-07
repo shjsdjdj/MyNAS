@@ -1,6 +1,6 @@
 # Architecture
 
-MyNAS v3.1 is a Windows-native personal cloud built as a single FastAPI application with a Vue 3 frontend and SQLite metadata. It deliberately avoids microservices, containers, message brokers, and distributed infrastructure.
+MyNAS is a Windows-first personal cloud with compatible storage and startup behavior on Windows, Linux, and macOS. It remains a single FastAPI application with a Vue 3 frontend and SQLite metadata, deliberately avoiding microservices, containers, message brokers, and distributed infrastructure.
 
 ## System overview
 
@@ -12,7 +12,7 @@ flowchart TD
     Assets[Asset services]
     DB[(SQLite)]
     Storage[UUID managed storage]
-    Locations[Registered Windows directories]
+    Locations[Registered host directories]
     Scanner[Trusted scanner]
     Photos[Photo and Timeline queries]
     Backup[Incremental backup]

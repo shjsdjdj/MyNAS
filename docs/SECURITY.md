@@ -1,6 +1,6 @@
 # Security Architecture
 
-MyNAS v3.1 uses a deny-by-default, Asset-centered security model. The application is designed for a trusted Windows host and does not expose raw filesystem paths as a public file API.
+MyNAS uses a deny-by-default, Asset-centered security model. The application is designed for a trusted Windows, Linux, or macOS host and does not expose raw filesystem paths as a public file API.
 
 ## Authentication
 
@@ -19,7 +19,7 @@ Storage Location records are also user-owned. Their paths are configuration data
 Managed files are stored under:
 
 ```text
-<MYNAS_ROOT>\Storage\<user_id>\<asset_uuid>
+<MYNAS_ROOT>/Storage/<user_id>/<asset_uuid>
 ```
 
 The backend generates the UUID filename. The original filename is display metadata and never participates in managed path construction. Before reading or deleting bytes, MyNAS resolves the database path and verifies that it remains inside the authenticated user's storage root.
@@ -61,7 +61,7 @@ Audit records cover security-relevant action types and retain only `user_id`, ac
 - Proxy IP headers are ignored unless the immediate proxy IP is explicitly listed in `MYNAS_TRUSTED_PROXY_IPS`.
 - Point Cloudflare Tunnel at `http://127.0.0.1:8000` after building the Vue frontend; do not expose the Vite development server.
 - Keep `Config\jwt-secret.key`, `Config\mynas.db`, backup data, and Cloudflare credentials out of source control.
-- Protect the Windows account and volumes hosting MyNAS.
+- Protect the host account and volumes running MyNAS.
 - Treat Storage Location registration as privileged local-host configuration.
 - Back up the database and managed storage together.
 

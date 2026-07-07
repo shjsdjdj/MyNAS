@@ -4,7 +4,7 @@ The MyNAS scanner imports trusted filesystem content into the Asset system. It i
 
 ## Trust boundary
 
-Uploads process untrusted browser input and must call `validate_upload`. The scanner processes an explicitly registered Windows directory and must not call upload validation, apply the upload MIME whitelist, or skip unknown extensions.
+Uploads process untrusted browser input and must call `validate_upload`. The scanner processes an explicitly registered host directory and must not call upload validation, apply the upload MIME whitelist, or skip unknown extensions.
 
 The scanner still classifies known image and video MIME types for presentation. Unknown types are indexed as regular files.
 
@@ -41,7 +41,7 @@ For every encountered file, the scanner:
 3. Computes SHA-256 and compares it with the existing Asset.
 4. Creates new files, atomically replaces modified managed bytes, and refreshes metadata.
 5. Marks scanner-owned Assets as deleted when their source file disappears.
-6. Copies bytes to `Storage\<user_id>\<asset_uuid>` through a verified staging file.
+6. Copies bytes to `Storage/<user_id>/<asset_uuid>` through a verified staging file.
 7. Generates a thumbnail and extracts EXIF best-effort for images.
 
 Executable files, unknown extensions, and same-content files at different paths are indexed. This behavior does not affect upload security.
@@ -62,7 +62,9 @@ No queue, Redis instance, message broker, or worker framework is involved.
 
 ## Restart safety
 
-Registered-storage Assets use stable UUIDs derived from the location UUID and normalized relative path. Re-running a completed or interrupted scan does not create a second Asset for files already committed. The in-memory running guard naturally resets when the process restarts.
+Registered-storage Assets use stable UUIDs derived from the location UUID and normalized relative path. Windows uses case-insensitive identity normalization; Linux and macOS preserve case so `Photo.jpg` and `photo.jpg` receive different UUIDs even on case-sensitive APFS volumes. Asset creation and missing-file reconciliation call the same identity function. Existing lowercase scanner IDs are adopted during the first case-preserving reconciliation so an upgrade does not leave duplicate active Assets.
+
+Re-running a completed or interrupted scan does not create a second Asset for files already committed. The in-memory running guard naturally resets when the process restarts.
 
 Deletion reconciliation runs only after the source tree is successfully enumerated. An unavailable or disconnected drive therefore cannot cause a mass soft-delete.
 

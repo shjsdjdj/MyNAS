@@ -5,7 +5,7 @@ import re
 import shutil
 import sqlite3
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from uuid import uuid4
 
 from backend import config
@@ -13,7 +13,7 @@ from backend.db.database import connection, get_setting, set_setting, utc_now
 from backend.services.backup_service import backup_logs, configure_daily_schedule, validate_backup_destination
 from backend.utils.files import size_label
 
-MYNAS_VERSION = "3.2.0"
+MYNAS_VERSION = "3.2.5"
 DEFAULT_PREFERENCES = {
     "language": "zh",
     "theme": "light",
@@ -141,13 +141,33 @@ def get_storage_location(user_id: int, location_id: str) -> dict:
 
 
 def validate_storage_path(path: str) -> str:
-    clean = path.strip().rstrip("\\/")
-    if not re.fullmatch(r"[A-Za-z]:\\(?:[^<>:\"|?*\\/]+\\?)*", clean + ("\\" if clean.endswith(":") else "")):
-        if not re.fullmatch(r"[A-Za-z]:\\.*", clean):
-            raise ValueError("Storage path must be an absolute Windows drive path")
-    if ".." in Path(clean).parts:
+    clean = path.strip()
+    if not clean or "\x00" in clean:
+        raise ValueError("Storage path must be an absolute path")
+
+    if re.match(r"^[A-Za-z]:[\\/]", clean):
+        windows_path = PureWindowsPath(clean)
+        if not windows_path.is_absolute():
+            raise ValueError("Storage path must be an absolute path")
+        if ".." in windows_path.parts:
+            raise ValueError("Storage path traversal is not allowed")
+        return str(windows_path)
+
+    posix_path = PurePosixPath(clean)
+    if not posix_path.is_absolute():
+        raise ValueError("Storage path must be an absolute path")
+    if ".." in posix_path.parts:
         raise ValueError("Storage path traversal is not allowed")
-    return clean
+
+    sensitive_roots = tuple(PurePosixPath(value) for value in (
+        "/bin", "/boot", "/dev", "/etc", "/proc", "/run", "/sbin",
+        "/sys", "/usr", "/System", "/private/etc", "/private/var/db",
+    ))
+    if posix_path == PurePosixPath("/") or any(
+        posix_path == root or root in posix_path.parents for root in sensitive_roots
+    ):
+        raise ValueError("Storage path cannot use a sensitive system directory")
+    return posix_path.as_posix()
 
 
 def backup_settings(user_id: int) -> dict:

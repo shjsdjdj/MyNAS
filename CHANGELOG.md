@@ -2,6 +2,34 @@
 
 All notable changes to MyNAS are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses semantic versioning.
 
+## [3.2.5] — 2026-07-07
+
+### Fixed
+
+- Scanner Asset identity now follows host filesystem semantics: Windows paths remain case-insensitive, while Linux and macOS preserve case, including case-sensitive APFS volumes.
+- Existing lowercase scanner identities are adopted during reconciliation so upgrades do not create duplicate active Assets.
+- Storage path validation accepts absolute Windows, Linux, and macOS paths while rejecting relative paths, traversal, NUL bytes, filesystem roots, and sensitive system directories.
+- Asset creation timestamps now use application UTC time instead of platform-dependent filesystem creation-time semantics.
+- Dashboard and system information use the real host name instead of a Windows-specific label.
+- Upload validation blocks executable and script formats commonly used on Windows, Linux, and macOS without changing the scanner pipeline.
+
+### Added
+
+- Cross-platform data-root defaults: `E:\MyNAS` on Windows and `~/MyNAS` on Linux and macOS, with `MYNAS_ROOT` retaining highest priority.
+- Native `start.sh` launcher for Linux and macOS alongside the existing Windows PowerShell launcher.
+- Cross-platform regression coverage for configuration, storage validation, scanner identity migration, timestamps, host names, and upload security.
+
+### Changed
+
+- Documentation now describes Windows-first origins and supported Windows, Linux, and macOS deployment paths.
+- Version updated to MyNAS 3.2.5 without database-schema, API, authentication, or Asset-model changes.
+
+### Verification
+
+- Backend automated tests: 60 passed.
+- Frontend production build: passed with Vite 6.4.2.
+- Shell launcher syntax validation: passed.
+
 ## [3.2.0] — 2026-07-06
 
 ### Fixed

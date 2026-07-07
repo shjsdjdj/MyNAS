@@ -107,7 +107,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(
-    title="MyNAS Secure API", version="3.2.0",
+    title="MyNAS Secure API", version="3.2.5",
     docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan,
 )
 app.add_middleware(RequestSizeLimitMiddleware)

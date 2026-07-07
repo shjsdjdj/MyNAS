@@ -20,7 +20,7 @@ The implementation uses the dictionaries in `src/locales/` and does not depend o
 
 ## Storage Locations
 
-The Storage card lists user-owned Windows directories with default state, availability, total capacity, usage, and free space. Users can add, rename, delete, and select a default location.
+The Storage card lists user-owned Windows, Linux, or macOS directories with default state, availability, total capacity, usage, and free space. Users can add, rename, delete, and select a default location.
 
 Adding a reachable external directory starts a background scan. An offline path remains saved and the API reports `scan_required: true`. See [Storage](STORAGE.md) and [Scan System](SCAN_SYSTEM.md).
 

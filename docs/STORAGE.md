@@ -1,20 +1,20 @@
 # Storage Locations
 
-Storage Locations connect user-owned Windows directories to the MyNAS Asset index. Each location is stored in SQLite with a UUID, owner, display name, absolute path, default flag, and timestamps.
+Storage Locations connect user-owned Windows, Linux, or macOS directories to the MyNAS Asset index. Each location is stored in SQLite with a UUID, owner, display name, absolute path, default flag, and timestamps.
 
 ## Managed storage and registered locations
 
 These concepts are intentionally separate:
 
-- **Managed storage** contains UUID-named file bytes under `MyNAS\Storage\<user_id>\`. All downloads and previews are served from this boundary.
-- **Storage Locations** are registered source directories such as `F:\Photos`. They are configuration records used by the trusted scanner.
+- **Managed storage** contains UUID-named file bytes under `MyNAS/Storage/<user_id>/` using the host path separator. All downloads and previews are served from this boundary.
+- **Storage Locations** are registered source directories such as `F:\Photos`, `/mnt/photos`, or `/Volumes/Photos`. They are configuration records used by the trusted scanner.
 
 Registering a location never exposes its real path through a file API. The scanner copies indexed content into managed storage and creates Assets; the UI continues to use only Asset IDs.
 
 ## Adding a location
 
 1. Open Settings → Storage.
-2. Enter a display name and absolute Windows path.
+2. Enter a display name and absolute host path.
 3. Save the location.
 4. If the path is reachable, MyNAS starts a background scan for the current user.
 5. Indexed images become available in Photos, Timeline, Recent, and Dashboard.
@@ -46,8 +46,8 @@ If the drive is unavailable, the record is still created and `scan_required` is 
 
 ## Path rules
 
-- Paths must be absolute Windows drive paths.
-- Relative paths and `..` traversal are rejected.
+- Windows drive paths and POSIX absolute paths are supported.
+- Relative paths, `..` traversal, POSIX root, and sensitive system trees such as `/etc`, `/bin`, and `/System` are rejected.
 - Availability and capacity are read from the server running MyNAS.
 - Paths inside the MyNAS data root are handled by the existing internal scanner and are not started as external background scans.
 - Paths are always loaded from a user-owned database record before scanning.
@@ -66,6 +66,6 @@ Storage records are isolated by `user_id`. Updating or deleting another user's r
 
 ## Drive availability
 
-External drives and network-mounted drive letters may be offline. MyNAS reports the location as unavailable without removing it. Reconnect the drive before scanning or capacity checks.
+External drives and mounted volumes may be offline. MyNAS reports the location as unavailable without removing it. Reconnect or remount the volume before scanning or capacity checks.
 
 For scanner behavior and restart safety, see [Scan System](SCAN_SYSTEM.md).

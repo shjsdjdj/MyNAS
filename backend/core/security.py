@@ -22,7 +22,12 @@ ALLOWED_MIME_TYPES = {
     "application/pdf": (b"%PDF-",),
     "video/mp4": (),
 }
-BLOCKED_EXTENSIONS = {".exe", ".bat", ".cmd", ".com", ".msi", ".ps1", ".js", ".html", ".htm", ".vbs", ".scr"}
+BLOCKED_EXTENSIONS = {
+    ".exe", ".bat", ".cmd", ".com", ".msi", ".ps1", ".vbs", ".scr",
+    ".sh", ".run", ".bin", ".appimage", ".deb", ".rpm",
+    ".command", ".app", ".dmg", ".pkg",
+    ".js", ".py", ".html", ".htm",
+}
 MIME_EXTENSIONS = {
     "image/jpeg": {".jpg", ".jpeg"},
     "image/png": {".png"},

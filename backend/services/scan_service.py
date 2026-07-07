@@ -1,5 +1,6 @@
 import mimetypes
 import os
+import platform
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -182,7 +183,8 @@ def _scan_source_tree(
 
     for source in sources:
         relative_path = source.relative_to(source_root).as_posix()
-        deterministic_id = str(uuid5(namespace, relative_path.lower()))
+        deterministic_id = _scanner_asset_id(namespace, relative_path)
+        previous_id = str(uuid5(namespace, relative_path.lower()))
         try:
             parent_id = parent_map[source.parent]
             if source.is_dir():
@@ -199,6 +201,7 @@ def _scan_source_tree(
                 source=source,
                 parent_id=parent_id,
                 asset_id=deterministic_id,
+                previous_asset_id=previous_id if previous_id != deterministic_id else None,
                 legacy=legacy,
             )
             seen_ids.add(canonical_id)
@@ -226,7 +229,7 @@ def _scan_source_tree(
 
 def _reconcile_file(
     *, user_id: int, source: Path, parent_id: str,
-    asset_id: str, legacy: bool,
+    asset_id: str, previous_asset_id: str | None, legacy: bool,
 ) -> tuple[str, str]:
     digest = _retry_io(lambda: sha256_file(source))
     mime = mimetypes.guess_type(source.name)[0] or "application/octet-stream"
@@ -236,6 +239,26 @@ def _reconcile_file(
         existing = conn.execute(
             "SELECT * FROM assets WHERE id=? AND user_id=?", (asset_id, user_id)
         ).fetchone()
+        if not existing and previous_asset_id:
+            previous = conn.execute(
+                "SELECT * FROM assets WHERE id=? AND user_id=?", (previous_asset_id, user_id)
+            ).fetchone()
+            if previous:
+                conn.execute(
+                    "UPDATE assets SET id=? WHERE id=? AND user_id=?",
+                    (asset_id, previous_asset_id, user_id),
+                )
+                conn.execute(
+                    "UPDATE backup_entries SET source_asset_id=? WHERE source_asset_id=? AND user_id=?",
+                    (asset_id, previous_asset_id, user_id),
+                )
+                conn.execute(
+                    "UPDATE audit_logs SET asset_id=? WHERE asset_id=? AND user_id=?",
+                    (asset_id, previous_asset_id, user_id),
+                )
+                existing = conn.execute(
+                    "SELECT * FROM assets WHERE id=? AND user_id=?", (asset_id, user_id)
+                ).fetchone()
         candidates = []
         if legacy:
             candidates = conn.execute(
@@ -359,7 +382,10 @@ def _soft_delete_missing(user_id: int, root_asset_id: str, namespace: UUID, seen
         ).fetchall()
         missing = [
             row["id"] for row in rows
-            if row["id"] == str(uuid5(namespace, row["relative_path"].lower()))
+            if row["id"] in {
+                _scanner_asset_id(namespace, row["relative_path"]),
+                str(uuid5(namespace, row["relative_path"].lower())),
+            }
             and row["id"] not in seen_ids
         ]
         if missing:
@@ -370,6 +396,13 @@ def _soft_delete_missing(user_id: int, root_asset_id: str, namespace: UUID, seen
                 [(now, now, asset_id, user_id) for asset_id in missing],
             )
     return len(missing)
+
+
+def _scanner_asset_id(namespace: UUID, relative_path: str) -> str:
+    normalized = relative_path.replace("\\", "/")
+    if platform.system() == "Windows":
+        normalized = normalized.lower()
+    return str(uuid5(namespace, normalized))
 
 
 def _retry_io(operation, attempts: int = 3):

@@ -54,10 +54,7 @@ def create_file_asset(
     if parent.type != "folder":
         raise ValueError("父资源不是文件夹")
     kind = "image" if mime_type.startswith("image/") else "video" if mime_type.startswith("video/") else "file"
-    stat = storage_path.stat()
-    from datetime import datetime, timezone
-    created = datetime.fromtimestamp(stat.st_ctime, timezone.utc).isoformat()
-    updated = datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat()
+    created = updated = utc_now()
     with connection() as conn:
         conn.execute(
             "INSERT INTO assets(id,user_id,filename,storage_path,type,size,hash,created_at,updated_at,mime_type,is_deleted,parent_id,tags) "
