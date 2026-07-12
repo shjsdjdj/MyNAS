@@ -77,7 +77,7 @@ def test_backup_daily_settings_and_system_information(tmp_path):
         system = client.get("/api/settings/system")
         assert system.status_code == 200
         data = system.json()
-        assert data["mynas_version"] == "3.2.5"
+        assert data["mynas_version"] == "3.4.0"
         assert data["python_version"] and data["sqlite_version"]
         assert data["asset_count"] >= 5
         assert "storage_usage" in data

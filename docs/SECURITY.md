@@ -57,7 +57,7 @@ Audit records cover security-relevant action types and retain only `user_id`, ac
 
 - Bind Uvicorn to `127.0.0.1` unless LAN exposure is intentional.
 - Use HTTPS for remote access and set `MYNAS_COOKIE_SECURE=true`.
-- Set `MYNAS_ENV=production`, `MYNAS_PUBLIC_URL=https://<host>`, and an explicit `MYNAS_CORS_ORIGINS`; production startup rejects wildcard CORS and insecure cookies.
+- Set `MYNAS_ENV=production`, `MYNAS_PUBLIC_BASE_URL=https://<host>`, and an explicit `MYNAS_CORS_ORIGINS`; production startup rejects wildcard CORS and insecure cookies. `MYNAS_PUBLIC_URL` remains accepted for existing installs.
 - Proxy IP headers are ignored unless the immediate proxy IP is explicitly listed in `MYNAS_TRUSTED_PROXY_IPS`.
 - Point Cloudflare Tunnel at `http://127.0.0.1:8000` after building the Vue frontend; do not expose the Vite development server.
 - Keep `Config\jwt-secret.key`, `Config\mynas.db`, backup data, and Cloudflare credentials out of source control.

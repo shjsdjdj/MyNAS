@@ -13,15 +13,17 @@ import {
   PhHeart as Heart, PhArrowLeft as ArrowLeft, PhArrowRight as ArrowRight,
   PhUser as UserIcon, PhGlobe as Globe, PhMapPin as MapPin,
   PhPencilSimple as PencilSimple, PhPlus as Plus, PhPlay as Play,
-  PhSun as Sun, PhCheckSquare as CheckSquare, PhSquare as Square
+  PhSun as Sun, PhCheckSquare as CheckSquare, PhSquare as Square,
+  PhCopy as Copy, PhArrowSquareOut as ArrowSquareOut
 } from '@phosphor-icons/vue'
 import {
   addStorageLocation, assetDownloadUrl, changePassword, changeUsername,
   createFolder, deleteFile, deleteStorageLocation, emptyTrash,
   getBackupSettings,
-  getDashboard, getFiles, getMe, getPhotoTimeline, getPhotos, getRecentPhotos,
+  getDashboard, getFiles, getMe, getNetworkStatus, getPhotoTimeline, getPhotos, getRecentPhotos,
   getPreferences, getStorageLocations, getSystemInformation, getTrash,
   login, logout, makeDefaultStorage, permanentDeleteTrash, restoreTrash,
+  resolveConnectionFailure,
   runBackupNow, saveBackupSettings, savePreferences, searchPhotos, setPhotoFavorite,
   updateStorageLocation, uploadFiles,
 } from './api'
@@ -94,10 +96,12 @@ const dragActive = ref(false)
 const selectMode = ref(false)
 const selectedPhotoIds = ref(new Set())
 const highlightedPhotoId = ref(null)
-const preferences = ref({ language: locale.value, theme: 'light', default_home: 'photos', default_upload_directory: 'Photos', photo_sort: 'taken_desc' })
+const preferences = ref({ language: locale.value, theme: 'light', default_home: 'photos', default_upload_directory: 'Photos', photo_sort: 'newest' })
 const storageLocations = ref([])
 const backupConfig = ref({ directory: '', enabled: false, daily_time: '02:00', last_backup_at: null, last_status: 'never' })
 const systemInfo = ref(null)
+const networkStatus = ref(null)
+const connectionState = ref(null)
 const settingsLoading = ref(false)
 const usernameDraft = ref('')
 const storageDraft = ref({ name: '', path: '', is_default: false })
@@ -105,6 +109,23 @@ const editingStorageId = ref(null)
 const backupRunning = ref(false)
 let photoSearchTimer = null
 let photoRequestId = 0
+let photoLoadMoreObserver = null
+const photoLoadMoreSentinel = ref(null)
+
+// Touch gesture state for lightbox swipe navigation
+let touchStartX = 0
+let touchStartY = 0
+let touchStartTime = 0
+let lightboxTouchIsHorizontal = false
+let photoLongPressTimer = null
+let photoLongPressStartX = 0
+let photoLongPressStartY = 0
+let lastPhotoLongPressAt = 0
+const SWIPE_THRESHOLD = 72
+const SWIPE_MAX_VERTICAL = 88
+const SWIPE_MAX_DURATION = 900
+const PHOTO_LONG_PRESS_DELAY = 520
+const PHOTO_LONG_PRESS_MOVE_TOLERANCE = 12
 
 const isDashboard = computed(() => current.value === 'dashboard')
 const isTrash = computed(() => current.value === 'trash')
@@ -125,10 +146,29 @@ const photosRootId = computed(() => dashboard.value?.categories?.find(item => it
 const defaultUploadRootId = computed(() => dashboard.value?.categories?.find(item => item.name === preferences.value.default_upload_directory)?.id || photosRootId.value)
 const timelineYears = computed(() => [...new Set(timelineGroups.value.map(group => group.year))])
 const timelineMonths = computed(() => [...new Set(timelineGroups.value.map(group => group.date.slice(0, 7)))])
+const networkPrimaryUrl = computed(() => networkStatus.value?.public_url || networkStatus.value?.lan_url || networkStatus.value?.local_url || '')
 const fallbackCategoryMeta = { icon: Folder, tone: 'blue' }
 
 function categoryMeta(name) { return meta[name] || fallbackCategoryMeta }
 function categoryLabel(name) { return meta[name]?.labelKey ? t(meta[name].labelKey) : name }
+function networkStateLabel(state) { return t(`network.states.${state || 'unknown'}`) }
+function tunnelReasonLabel(reason) { return reason ? t(`network.reasons.${reason}`) : '' }
+function publicAccessReasonLabel(reason) { return reason ? t(`network.reasons.${reason}`) : '' }
+function connectionTitle(reason = connectionState.value) { return t(`connection.${reason || 'network_error'}.title`) }
+function connectionDescription(reason = connectionState.value) { return t(`connection.${reason || 'network_error'}.description`) }
+function systemHealthLabel(status) { return status === 'ok' ? t('dashboard.healthy') : t('connection.systemDegraded') }
+function serviceStateLabel(state) { return t(`serviceStates.${state || 'unknown'}`) }
+function formatUptime(seconds = 0) {
+  const totalMinutes = Math.max(0, Math.floor(seconds / 60))
+  return totalMinutes >= 60 ? `${Math.floor(totalMinutes / 60)}h ${totalMinutes % 60}m` : `${totalMinutes}m`
+}
+function networkModeLabel(mode) {
+  return t(`networkCenter.modes.${mode === 'public' ? 'cloudflare' : mode === 'lan' ? 'lan' : 'local'}`)
+}
+function formatNetworkCheck(value) {
+  if (!value) return t('networkCenter.notChecked')
+  return new Date(value).toLocaleString(locale.value === 'zh' ? 'zh-CN' : 'en-US')
+}
 
 function mergePhotoItems(incoming, reset = false) {
   if (!reset) {
@@ -140,7 +180,10 @@ function mergePhotoItems(incoming, reset = false) {
 }
 
 function friendlyError(e, fallback = 'errors.generic') {
-  if (!e.response) return t('errors.network')
+  if (!e.response) return t(`connection.${navigator.onLine === false ? 'network_error' : 'backend_offline'}.description`)
+  if (e.response?.data?.error?.code === 'database_error') return t('connection.database_error.description')
+  if (e.response?.data?.error?.code === 'storage_unavailable') return t('connection.storage_unavailable.description')
+  if (e.response.status === 401 && fallback === 'auth.loginFailed') return t(fallback)
   return ({ 401: t('errors.unauthorized'), 403: t('errors.forbidden'), 404: t('errors.notFound'), 409: t('errors.conflict'), 422: t('errors.validation') })[e.response.status] || t(fallback)
 }
 function showToast(message, type = 'success') {
@@ -149,10 +192,59 @@ function showToast(message, type = 'success') {
 }
 
 async function loadDashboard() {
-  loading.value = true; error.value = ''
-  try { dashboard.value = await getDashboard() }
-  catch (e) { error.value = friendlyError(e) }
+  loading.value = true; error.value = ''; connectionState.value = null
+  try {
+    dashboard.value = await getDashboard()
+    networkStatus.value = dashboard.value.network || null
+    connectionState.value = null
+  }
+  catch (e) {
+    dashboard.value = null
+    connectionState.value = await resolveConnectionFailure(e)
+    error.value = connectionState.value ? connectionDescription() : friendlyError(e)
+  }
   finally { loading.value = false }
+}
+async function refreshNetworkStatus(notify = false) {
+  try {
+    networkStatus.value = await getNetworkStatus()
+    if (notify) showToast(t('networkCenter.checkComplete'))
+  }
+  catch (e) { showToast(friendlyError(e), 'error') }
+}
+async function copyNetworkUrl(url = networkPrimaryUrl.value) {
+  if (!url) return
+  let copied = false
+  try {
+    if (navigator.clipboard?.writeText) {
+      await Promise.race([
+        navigator.clipboard.writeText(url),
+        new Promise((_, reject) => window.setTimeout(() => reject(new Error('clipboard timeout')), 800)),
+      ])
+      copied = true
+    }
+  } catch { /* Fall back for restricted browsers and installed web apps. */ }
+  if (!copied) {
+    const helper = document.createElement('textarea')
+    helper.value = url
+    helper.setAttribute('readonly', '')
+    helper.style.position = 'fixed'; helper.style.opacity = '0'
+    document.body.appendChild(helper); helper.select()
+    copied = document.execCommand('copy')
+    helper.remove()
+  }
+  showToast(t(copied ? 'networkCenter.copied' : 'networkCenter.copyFailed'), copied ? 'success' : 'error')
+}
+function openNetworkUrl(url = networkPrimaryUrl.value) {
+  if (url) window.open(url, '_blank', 'noopener,noreferrer')
+}
+function observePhotoLoadMore(target) {
+  photoLoadMoreObserver?.disconnect()
+  if (!target || !('IntersectionObserver' in window)) return
+  photoLoadMoreObserver = new IntersectionObserver(entries => {
+    if (entries.some(entry => entry.isIntersecting)) loadMorePhotos()
+  }, { rootMargin: '0px 0px 280px' })
+  photoLoadMoreObserver.observe(target)
 }
 async function loadFolder(folderId = currentFolderId.value) {
   currentFolderId.value = folderId; loading.value = true; error.value = ''
@@ -206,8 +298,11 @@ async function loadPhotoView(reset = true) {
 }
 async function loadMorePhotos() {
   if (!photoHasMore.value || photoLoading.value) return
+  photoLoadMoreObserver?.disconnect()
   photoPage.value += 1
   await loadPhotoView(false)
+  await nextTick()
+  observePhotoLoadMore(photoLoadMoreSentinel.value)
 }
 async function selectNav(key, pushHistory = true) {
   current.value = key; search.value = ''
@@ -309,6 +404,81 @@ function handleKeydown(event) {
   if (event.key === 'ArrowLeft') stepLightbox(-1)
   if (event.key === 'ArrowRight') stepLightbox(1)
 }
+
+// Touch gesture handlers for lightbox swipe navigation
+function handleTouchStart(event) {
+  if (!lightboxPhoto.value || event.touches.length !== 1 || event.target.closest('button')) return
+  touchStartX = event.touches[0].clientX
+  touchStartY = event.touches[0].clientY
+  touchStartTime = Date.now()
+  lightboxTouchIsHorizontal = false
+}
+
+function handleTouchMove(event) {
+  if (!touchStartTime || event.touches.length !== 1) return
+  const deltaX = event.touches[0].clientX - touchStartX
+  const deltaY = event.touches[0].clientY - touchStartY
+  lightboxTouchIsHorizontal = Math.abs(deltaX) > 8 && Math.abs(deltaX) > Math.abs(deltaY) * 1.35
+  if (lightboxTouchIsHorizontal) event.preventDefault()
+}
+
+function resetLightboxTouch() {
+  touchStartX = 0
+  touchStartY = 0
+  touchStartTime = 0
+  lightboxTouchIsHorizontal = false
+}
+
+function handleTouchEnd(event) {
+  if (!lightboxPhoto.value || event.changedTouches.length !== 1) return
+
+  const touchEndX = event.changedTouches[0].clientX
+  const touchEndY = event.changedTouches[0].clientY
+  const touchDuration = Date.now() - touchStartTime
+
+  const deltaX = touchEndX - touchStartX
+  const deltaY = touchEndY - touchStartY
+  const absDeltaX = Math.abs(deltaX)
+  const absDeltaY = Math.abs(deltaY)
+
+  const isSwipe = lightboxTouchIsHorizontal
+    && touchDuration <= SWIPE_MAX_DURATION
+    && absDeltaY <= SWIPE_MAX_VERTICAL
+    && absDeltaX >= SWIPE_THRESHOLD
+
+  resetLightboxTouch()
+  if (!isSwipe) return
+  event.preventDefault()
+  stepLightbox(deltaX > 0 ? -1 : 1)
+}
+
+function handlePhotoClick(item) {
+  if (Date.now() - lastPhotoLongPressAt < 700) return
+  if (selectMode.value) togglePhotoSelection(item)
+  else openLightbox(item)
+}
+
+function startPhotoLongPress(event, item) {
+  if (event.touches.length !== 1 || event.target.closest('button')) return
+  const touch = event.touches[0]
+  photoLongPressStartX = touch.clientX
+  photoLongPressStartY = touch.clientY
+  window.clearTimeout(photoLongPressTimer)
+  photoLongPressTimer = window.setTimeout(() => {
+    selectMode.value = true
+    togglePhotoSelection(item)
+    lastPhotoLongPressAt = Date.now()
+    if (navigator.vibrate) navigator.vibrate(12)
+  }, PHOTO_LONG_PRESS_DELAY)
+}
+
+function cancelPhotoLongPress(event) {
+  const touch = event.touches?.[0] || event.changedTouches?.[0]
+  const moved = touch && (Math.abs(touch.clientX - photoLongPressStartX) > PHOTO_LONG_PRESS_MOVE_TOLERANCE || Math.abs(touch.clientY - photoLongPressStartY) > PHOTO_LONG_PRESS_MOVE_TOLERANCE)
+  if (event.type === 'touchmove' && !moved) return
+  window.clearTimeout(photoLongPressTimer)
+  photoLongPressTimer = null
+}
 function togglePhotoSelection(item) {
   const next = new Set(selectedPhotoIds.value)
   next.has(item.id) ? next.delete(item.id) : next.add(item.id)
@@ -342,15 +512,16 @@ function jumpTimeline(value, type) {
 async function loadSettings() {
   settingsLoading.value = true; error.value = ''
   try {
-    const [nextPreferences, storage, backup, system] = await Promise.all([
-      getPreferences(), getStorageLocations(), getBackupSettings(), getSystemInformation(),
-    ])
+    const [nextPreferences, backup] = await Promise.all([getPreferences(), getBackupSettings()])
     preferences.value = nextPreferences
-    storageLocations.value = storage.items || []
     backupConfig.value = backup
-    systemInfo.value = system
     usernameDraft.value = user.value.username
     setLocale(nextPreferences.language)
+    void refreshNetworkStatus()
+    void Promise.all([getStorageLocations(), getSystemInformation()]).then(([storage, system]) => {
+      storageLocations.value = storage.items || []
+      systemInfo.value = system
+    }).catch(e => showToast(friendlyError(e), 'error'))
   } catch (e) { error.value = friendlyError(e) }
   finally { settingsLoading.value = false }
 }
@@ -400,33 +571,44 @@ async function triggerBackup() {
   finally { backupRunning.value = false }
 }
 async function enterInitialView() {
-  await loadDashboard()
   try {
     preferences.value = await getPreferences()
     setLocale(preferences.value.language)
   } catch { /* defaults remain available */ }
   const requested = routeFromPath()
-  await selectNav(window.location.pathname === '/' ? preferences.value.default_home : requested, false)
+  const initialView = window.location.pathname === '/' ? preferences.value.default_home : requested
+  await loadDashboard()
+  if (initialView !== 'dashboard') await selectNav(initialView, false)
 }
 async function bootstrapAuth() {
+  authReady.value = false
+  connectionState.value = null
   try {
     user.value = await getMe()
     passwordChangeRequired.value = Boolean(user.value.password_change_required)
     if (!passwordChangeRequired.value) await enterInitialView()
   }
-  catch { user.value = null }
+  catch (e) {
+    user.value = null
+    if (e.response?.status !== 401) connectionState.value = await resolveConnectionFailure(e)
+  }
   finally { authReady.value = true }
 }
 async function submitLogin() {
   loginLoading.value = true; loginError.value = ''
+  const submittedPassword = loginForm.value.password
   try {
-    const result = await login(loginForm.value.username, loginForm.value.password)
+    const result = await login(loginForm.value.username, submittedPassword)
     user.value = result.user
     passwordChangeRequired.value = Boolean(result.password_change_required)
-    passwordForm.value.current = loginForm.value.password
+    passwordForm.value.current = passwordChangeRequired.value ? submittedPassword : ''
     loginForm.value.password = ''
     if (!passwordChangeRequired.value) await enterInitialView()
-  } catch (e) { loginError.value = friendlyError(e, 'auth.loginFailed') }
+  } catch (e) {
+    loginForm.value.password = ''
+    if (!e.response) connectionState.value = await resolveConnectionFailure(e)
+    else loginError.value = friendlyError(e, 'auth.loginFailed')
+  }
   finally { loginLoading.value = false }
 }
 async function submitPasswordChange() {
@@ -446,9 +628,15 @@ async function submitPasswordChange() {
   finally { passwordLoading.value = false }
 }
 async function handleLogout() {
-  try { await logout() } finally { user.value = null; dashboard.value = null; passwordChangeRequired.value = false; current.value = 'photos' }
+  try { await logout() } finally { user.value = null; dashboard.value = null; connectionState.value = null; passwordChangeRequired.value = false; current.value = 'photos' }
 }
-window.addEventListener('mynas-auth-required', () => { user.value = null })
+function handleAuthRequired(event) {
+  if (!user.value) return
+  user.value = null
+  connectionState.value = null
+  loginError.value = t(`connection.${event.detail?.reason || 'auth_expired'}.description`)
+}
+window.addEventListener('mynas-auth-required', handleAuthRequired)
 window.addEventListener('keydown', handleKeydown)
 window.addEventListener('popstate', () => { if (user.value) selectNav(routeFromPath(), false) })
 watch(search, () => {
@@ -456,15 +644,27 @@ watch(search, () => {
   window.clearTimeout(photoSearchTimer)
   photoSearchTimer = window.setTimeout(() => loadPhotoView(), 250)
 })
+watch(photoLoadMoreSentinel, observePhotoLoadMore)
 onMounted(bootstrapAuth)
 onBeforeUnmount(() => {
   window.clearTimeout(photoSearchTimer)
+  window.clearTimeout(photoLongPressTimer)
+  photoLoadMoreObserver?.disconnect()
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('mynas-auth-required', handleAuthRequired)
 })
 </script>
 
 <template>
-  <div v-if="!authReady" class="login-screen"><ArrowClockwise class="spin" :size="34" /></div>
+  <div v-if="!authReady" class="login-screen"><section class="login-card connection-card starting"><ArrowClockwise class="spin" :size="34" /><h1>{{ t('connection.starting.title') }}</h1><p>{{ t('connection.starting.description') }}</p></section></div>
+  <div v-else-if="connectionState && !user" class="login-screen">
+    <section :class="['login-card', 'connection-card', connectionState]">
+      <div class="login-brand"><span class="brand-mark"><Database :size="24" weight="fill" /></span><span>{{ t('secureName') }}</span></div>
+      <h1>{{ connectionTitle() }}</h1>
+      <p>{{ connectionDescription() }}</p>
+      <button class="primary wide" @click="bootstrapAuth"><ArrowClockwise :size="18" />{{ t('connection.retry') }}</button>
+    </section>
+  </div>
   <div v-else-if="!user" class="login-screen">
     <section class="login-card">
       <div class="login-brand"><span class="brand-mark"><HardDrives :size="24" weight="fill" /></span><span>{{ t('secureName') }}</span></div>
@@ -547,7 +747,7 @@ onBeforeUnmount(() => {
             <section v-for="group in timelineGroups" :id="`day-${group.date}`" :key="group.date" class="timeline-day">
               <div class="timeline-date"><span>{{ group.day }}</span><div><strong>{{ formatPhotoDay(group.date) }}</strong><small>{{ t('photos.count', { count: group.items.length }) }}</small></div></div>
               <div class="photo-masonry compact">
-                <article v-for="item in group.items" :key="item.id" :data-photo-id="item.id" :class="['library-photo', { selected: selectedPhotoIds.has(item.id), highlighted: highlightedPhotoId === item.id }]" @click="selectMode ? togglePhotoSelection(item) : openLightbox(item)">
+                <article v-for="item in group.items" :key="item.id" :data-photo-id="item.id" :class="['library-photo', { selected: selectedPhotoIds.has(item.id), highlighted: highlightedPhotoId === item.id }]" @click="handlePhotoClick(item)" @touchstart="startPhotoLongPress($event, item)" @touchmove="cancelPhotoLongPress" @touchend="cancelPhotoLongPress" @touchcancel="cancelPhotoLongPress" @contextmenu.prevent>
                   <img v-if="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.name" loading="lazy" :width="item.width || 480" :height="item.height || 360" />
                   <span v-else class="photo-placeholder"><Image :size="30" weight="duotone" /></span>
                   <button v-if="selectMode" class="select-photo-button" @click.stop="togglePhotoSelection(item)"><CheckSquare v-if="selectedPhotoIds.has(item.id)" :size="21" weight="fill" /><Square v-else :size="21" /></button>
@@ -559,7 +759,7 @@ onBeforeUnmount(() => {
           </template>
 
           <div v-else class="photo-masonry">
-            <article v-for="item in photoItems" :key="item.id" :data-photo-id="item.id" :class="['library-photo', { selected: selectedPhotoIds.has(item.id), highlighted: highlightedPhotoId === item.id }]" @click="selectMode ? togglePhotoSelection(item) : openLightbox(item)">
+            <article v-for="item in photoItems" :key="item.id" :data-photo-id="item.id" :class="['library-photo', { selected: selectedPhotoIds.has(item.id), highlighted: highlightedPhotoId === item.id }]" @click="handlePhotoClick(item)" @touchstart="startPhotoLongPress($event, item)" @touchmove="cancelPhotoLongPress" @touchend="cancelPhotoLongPress" @touchcancel="cancelPhotoLongPress" @contextmenu.prevent>
               <img v-if="item.thumbnail_url" :src="item.thumbnail_url" :alt="item.name" loading="lazy" :width="item.width || 480" :height="item.height || 360" />
               <span v-else class="photo-placeholder"><Image :size="30" weight="duotone" /></span>
               <button v-if="selectMode" class="select-photo-button" @click.stop="togglePhotoSelection(item)"><CheckSquare v-if="selectedPhotoIds.has(item.id)" :size="21" weight="fill" /><Square v-else :size="21" /></button>
@@ -568,11 +768,14 @@ onBeforeUnmount(() => {
             </article>
           </div>
 
-          <div v-if="photoHasMore" class="load-more"><button class="secondary" :disabled="photoLoading" @click="loadMorePhotos"><ArrowClockwise v-if="photoLoading" class="spin" :size="17" />{{ photoLoading ? t('photos.loadingMore') : t('photos.loadMore') }}</button></div>
+          <div v-if="photoHasMore" ref="photoLoadMoreSentinel" class="load-more"><button class="secondary" :disabled="photoLoading" @click="loadMorePhotos"><ArrowClockwise v-if="photoLoading" class="spin" :size="17" />{{ photoLoading ? t('photos.loadingMore') : t('photos.loadMore') }}</button></div>
         </section>
       </template>
 
       <template v-else-if="isDashboard">
+        <section v-if="loading" class="dashboard-loading"><ArrowClockwise class="spin" :size="32" /><span>{{ t('common.loading') }}</span></section>
+        <section v-else-if="!dashboard" :class="['dashboard-loading', 'connection-state', connectionState]"><Database :size="34" weight="duotone" /><strong>{{ connectionState ? connectionTitle() : (error || t('errors.network')) }}</strong><p v-if="connectionState">{{ connectionDescription() }}</p><button class="secondary" @click="loadDashboard"><ArrowClockwise :size="17" />{{ t('connection.retry') }}</button></section>
+        <template v-else>
         <section class="hero-card">
           <div><span class="hero-kicker"><ShieldCheck :size="16" weight="fill" /> {{ t('dashboard.secure') }}</span><h2>{{ t('dashboard.heroTitle') }}</h2><p>{{ t('dashboard.heroText') }}</p><button class="primary" @click="showUpload = true"><CloudArrowUp :size="20" weight="bold" /> {{ t('dashboard.upload') }}</button></div>
           <div class="storage-ring" :style="{ '--percent': `${dashboard?.disk.percent || 0}%` }"><div><strong>{{ dashboard?.disk.percent || 0 }}%</strong><span>{{ t('dashboard.used') }}</span></div></div>
@@ -585,7 +788,25 @@ onBeforeUnmount(() => {
           <article><FileText :size="22" /><span><small>{{ t('dashboard.files') }}</small><strong>{{ dashboard?.stats.file_count || 0 }}</strong></span></article>
           <article><Heart :size="22" /><span><small>{{ t('dashboard.favorites') }}</small><strong>{{ dashboard?.stats.favorite_count || 0 }}</strong></span></article>
           <article><ArchiveBox :size="22" /><span><small>{{ t('dashboard.backupStatus') }}</small><strong>{{ dashboard?.backup.status || t('common.never') }}</strong></span></article>
-          <article><ShieldCheck :size="22" /><span><small>{{ t('dashboard.systemHealth') }}</small><strong>{{ t('dashboard.healthy') }}</strong></span></article>
+          <article><ShieldCheck :size="22" /><span><small>{{ t('dashboard.systemHealth') }}</small><strong>{{ systemHealthLabel(dashboard?.health?.status) }}</strong></span></article>
+        </section>
+
+        <section class="service-status-card">
+          <div class="service-status-heading"><span class="network-icon"><Database :size="22" /></span><span><small>{{ t('dashboard.controlCenter') }}</small><strong>{{ t('dashboard.serviceSummary') }}</strong></span></div>
+          <div class="service-status-items">
+            <span><small>{{ t('dashboard.backend') }}</small><strong>{{ serviceStateLabel(dashboard?.health?.backend) }}</strong></span>
+            <span><small>{{ t('dashboard.database') }}</small><strong>{{ serviceStateLabel(dashboard?.health?.database) }}</strong></span>
+            <span><small>{{ t('dashboard.storageService') }}</small><strong>{{ serviceStateLabel(dashboard?.health?.storage) }}</strong></span>
+            <span><small>{{ t('network.tunnel') }}</small><strong>{{ networkStateLabel(networkStatus?.tunnel?.state) }}</strong></span>
+            <span><small>{{ t('dashboard.uptime') }}</small><strong>{{ formatUptime(dashboard?.health?.uptime_seconds) }}</strong></span>
+            <span><small>{{ t('settings.version') }}</small><strong>{{ dashboard?.health?.version }}</strong></span>
+          </div>
+        </section>
+
+        <section class="network-card">
+          <div><span class="network-icon"><Globe :size="22" /></span><span><small>{{ t('network.publicAccess') }}</small><strong>{{ networkStatus?.url || t('network.localOnly') }}</strong></span></div>
+          <div class="network-card-state"><span :class="['network-state', networkStatus?.public_access?.state]">{{ networkStateLabel(networkStatus?.public_access?.state) }}</span><small>{{ t('network.tunnel') }} · {{ networkStateLabel(networkStatus?.tunnel?.state) }}<template v-if="networkStatus?.tunnel?.reason"> · {{ tunnelReasonLabel(networkStatus.tunnel.reason) }}</template></small></div>
+          <button class="icon-button" :title="t('common.refresh')" @click="refreshNetworkStatus"><ArrowClockwise :size="18" /></button>
         </section>
 
         <section class="section-block">
@@ -614,6 +835,7 @@ onBeforeUnmount(() => {
             <button @click="selectNav('settings')"><Gear :size="21" /><span><strong>{{ t('settings.title') }}</strong><small>{{ t('settings.subtitle') }}</small></span><CaretRight :size="17" /></button>
           </div>
         </section>
+        </template>
       </template>
 
       <template v-else-if="isSettings">
@@ -678,6 +900,67 @@ onBeforeUnmount(() => {
             <button class="primary" @click="persistPreferences">{{ t('common.save') }}</button>
           </section>
 
+          <section class="settings-card wide-card network-settings-card">
+            <header><span><Globe :size="22" /></span><div><h2>{{ t('networkCenter.title') }}</h2><p>{{ t('networkCenter.description') }}</p></div><button class="icon-button" :title="t('common.refresh')" @click="refreshNetworkStatus(true)"><ArrowClockwise :size="18" /></button></header>
+
+            <div class="network-center-summary">
+              <div class="network-summary-primary">
+                <span :class="['network-state', networkStatus?.public_access?.state]">{{ networkStateLabel(networkStatus?.public_access?.state) }}</span>
+                <small>{{ t('networkCenter.currentMode') }}</small>
+                <strong>{{ networkModeLabel(networkStatus?.mode) }}</strong>
+                <p>{{ networkStatus?.public_access?.state === 'connected' ? t('networkCenter.remoteReady') : t('networkCenter.localSafe') }}</p>
+              </div>
+              <div class="network-summary-stat"><small>{{ t('networkCenter.https') }}</small><strong>{{ networkStatus?.public_access?.secure ? t('networkCenter.enabled') : t('networkCenter.disabled') }}</strong></div>
+              <div class="network-summary-stat"><small>{{ t('networkCenter.tunnelStatus') }}</small><strong>{{ networkStateLabel(networkStatus?.tunnel?.state) }}</strong></div>
+              <div class="network-summary-stat"><small>{{ t('networkCenter.connections') }}</small><strong>{{ networkStatus?.tunnel?.connections ?? '—' }}</strong></div>
+              <div class="network-summary-stat"><small>{{ t('networkCenter.lastCheck') }}</small><strong>{{ formatNetworkCheck(networkStatus?.tunnel?.last_heartbeat || networkStatus?.checked_at) }}</strong></div>
+            </div>
+            <p v-if="networkStatus?.public_access?.reason || networkStatus?.tunnel?.reason" class="network-status-reason">{{ publicAccessReasonLabel(networkStatus?.public_access?.reason) || tunnelReasonLabel(networkStatus?.tunnel?.reason) }} · {{ t('connection.localStillAvailable') }}</p>
+
+            <div class="network-address-list">
+              <article><span><small>{{ t('networkCenter.localAddress') }}</small><strong>{{ networkStatus?.local_url }}</strong></span><button class="icon-button" :title="t('networkCenter.copyUrl')" @click="copyNetworkUrl(networkStatus?.local_url)"><Copy :size="17" /></button></article>
+              <article><span><small>{{ t('networkCenter.lanAddress') }}</small><strong>{{ networkStatus?.lan_url || t('networkCenter.notEnabled') }}</strong></span><button class="icon-button" :disabled="!networkStatus?.lan_url" :title="t('networkCenter.copyUrl')" @click="copyNetworkUrl(networkStatus?.lan_url)"><Copy :size="17" /></button></article>
+              <article class="public-address"><span><small>{{ t('networkCenter.publicAddress') }}</small><strong>{{ networkStatus?.public_url || t('networkCenter.notConfigured') }}</strong></span><button class="icon-button" :disabled="!networkStatus?.public_url" :title="t('networkCenter.copyUrl')" @click="copyNetworkUrl(networkStatus?.public_url)"><Copy :size="17" /></button></article>
+            </div>
+
+            <div class="network-center-actions">
+              <button class="secondary" @click="refreshNetworkStatus(true)"><ArrowClockwise :size="17" />{{ t('networkCenter.testConnection') }}</button>
+              <button class="secondary" :disabled="!networkPrimaryUrl" @click="copyNetworkUrl()"><Copy :size="17" />{{ t('networkCenter.copyUrl') }}</button>
+              <button class="primary" :disabled="!networkPrimaryUrl" @click="openNetworkUrl()"><ArrowSquareOut :size="17" />{{ t('networkCenter.openUrl') }}</button>
+            </div>
+
+            <div class="network-center-columns">
+              <section class="network-guide">
+                <h3>{{ t('networkCenter.setupTitle') }}</h3>
+                <p>{{ t('networkCenter.setupIntro') }}</p>
+                <ol>
+                  <li><span>1</span><div><strong>{{ t('networkCenter.step1Title') }}</strong><p>{{ t('networkCenter.step1Text') }}</p></div></li>
+                  <li><span>2</span><div><strong>{{ t('networkCenter.step2Title') }}</strong><p>{{ t('networkCenter.step2Text') }}</p><code>http://127.0.0.1:8000</code></div></li>
+                  <li><span>3</span><div><strong>{{ t('networkCenter.step3Title') }}</strong><p>{{ t('networkCenter.step3Text') }}</p><code>MYNAS_PUBLIC_BASE_URL=https://nas.example.com</code></div></li>
+                  <li><span>4</span><div><strong>{{ t('networkCenter.step4Title') }}</strong><p>{{ t('networkCenter.step4Text') }}</p></div></li>
+                </ol>
+              </section>
+              <section class="network-security-panel">
+                <h3><ShieldCheck :size="19" />{{ t('networkCenter.securityTitle') }}</h3>
+                <ul>
+                  <li>{{ t('networkCenter.securityTunnel') }}</li>
+                  <li>{{ t('networkCenter.securityAccess') }}</li>
+                  <li>{{ t('networkCenter.securityLogin') }}</li>
+                  <li>{{ t('networkCenter.securityLocal') }}</li>
+                </ul>
+                <p>{{ t('networkCenter.readOnlyNotice') }}</p>
+              </section>
+            </div>
+
+            <div class="network-faq">
+              <h3>{{ t('networkCenter.faqTitle') }}</h3>
+              <details><summary>{{ t('networkCenter.faqPublicIpQ') }}</summary><p>{{ t('networkCenter.faqPublicIpA') }}</p></details>
+              <details><summary>{{ t('networkCenter.faqPortsQ') }}</summary><p>{{ t('networkCenter.faqPortsA') }}</p></details>
+              <details><summary>{{ t('networkCenter.faqDataQ') }}</summary><p>{{ t('networkCenter.faqDataA') }}</p></details>
+              <details><summary>{{ t('networkCenter.faqOfflineQ') }}</summary><p>{{ t('networkCenter.faqOfflineA') }}</p></details>
+            </div>
+          </section>
+
           <section class="settings-card system-card">
             <header><span><Database :size="22" /></span><div><h2>{{ t('settings.system') }}</h2><p>{{ t('settings.systemText') }}</p></div></header>
             <div v-if="systemInfo" class="system-grid">
@@ -699,7 +982,7 @@ onBeforeUnmount(() => {
       </template>
     </main>
 
-    <div v-if="lightboxPhoto" class="photo-lightbox" role="dialog" aria-modal="true" :aria-label="lightboxPhoto.name" @click.self="closeLightbox">
+    <div v-if="lightboxPhoto" class="photo-lightbox" role="dialog" aria-modal="true" :aria-label="lightboxPhoto.name" @click.self="closeLightbox" @touchstart="handleTouchStart" @touchmove="handleTouchMove" @touchend="handleTouchEnd" @touchcancel="resetLightboxTouch">
       <div class="lightbox-top"><div><strong>{{ lightboxPhoto.name }}</strong><span>{{ formatPhotoDay(lightboxPhoto.taken_at) }} · {{ lightboxIndex + 1 }} / {{ photoItems.length }}</span></div><button :class="{ active: lightboxPhoto.is_favorite }" :title="lightboxPhoto.is_favorite ? t('photos.unfavorite') : t('photos.favorite')" @click="toggleFavorite(lightboxPhoto)"><Heart :size="21" :weight="lightboxPhoto.is_favorite ? 'fill' : 'bold'" /></button><button :title="t('photos.closeEsc')" @click="closeLightbox"><X :size="22" /></button></div>
       <button class="lightbox-arrow previous" :title="t('photos.previous')" @click="stepLightbox(-1)"><ArrowLeft :size="26" /></button>
       <img :src="assetDownloadUrl(lightboxPhoto.id)" :alt="lightboxPhoto.name" loading="lazy" />

@@ -91,3 +91,134 @@
   .lightbox-arrow.previous { left: calc(50% - 56px); }
   .lightbox-arrow.next { right: calc(50% - 56px); }
 }
+
+/* Enhanced touch targets for mobile */
+@media(max-width:760px) {
+  .photo-library { min-width: 0; }
+  .library-photo { -webkit-touch-callout: none; touch-action: manipulation; user-select: none; }
+  .photo-lightbox { overscroll-behavior: contain; touch-action: pan-y; }
+
+  .favorite-button, .select-photo-button {
+    width: 44px;
+    height: 44px;
+    top: 6px;
+  }
+
+  .favorite-button {
+    right: 6px;
+  }
+
+  .select-photo-button {
+    left: 6px;
+  }
+
+  .lightbox-top button {
+    width: 48px;
+    height: 48px;
+    min-width: 48px; /* Prevent shrinking */
+  }
+
+  .lightbox-arrow {
+    width: 54px;
+    height: 72px;
+  }
+
+  /* Better spacing for batch action buttons */
+  .photo-toolbar-actions button.secondary {
+    padding: 9px 14px;
+    white-space: nowrap;
+  }
+
+  .photo-toolbar-actions .selection-count {
+    min-width: max-content;
+    padding: 9px 12px;
+    background: #edf0ff;
+    border-radius: 10px;
+  }
+}
+
+/* Extra small screens (iPhone SE, etc.) */
+@media(max-width:375px) {
+  .topbar h1 {
+    font-size: 22px;
+  }
+
+  .subtitle {
+    font-size: 11px;
+  }
+
+  .photo-toolbar-actions {
+    gap: 6px;
+  }
+
+  .photo-toolbar-actions button {
+    font-size: 11px;
+    padding: 8px 11px;
+  }
+
+  .photo-toolbar-actions button svg {
+    display: none; /* Hide icons on very small screens to save space */
+  }
+
+  .filter-chip, .date-jump, .jump-select {
+    font-size: 10px;
+    height: 32px;
+    padding: 0 9px;
+  }
+
+  .lightbox-top strong {
+    font-size: 11px;
+    max-width: 45vw;
+  }
+
+  .modal {
+    padding: 24px 20px;
+  }
+
+  .category-grid {
+    grid-template-columns: 1fr; /* Single column on very small screens */
+    gap: 10px;
+  }
+}
+
+/* Prevent horizontal overflow */
+@media(max-width:760px) {
+  * {
+    max-width: 100%;
+  }
+
+  .main-content {
+    overflow-x: hidden;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+  }
+
+  .photo-toolbar-actions {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  /* Fix text overflow in small buttons */
+  button {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Ensure modals don't overflow */
+  .modal {
+    max-width: calc(100vw - 32px);
+  }
+
+  .dropzone strong, .dropzone span {
+    word-break: break-word;
+  }
+}
+
+@media(max-width:375px) {
+  .photo-toolbar-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .photo-toolbar-actions .selection-count { grid-column: 1 / -1; }
+  .photo-toolbar-actions button { min-width: 0; min-height: 42px; }
+  .photo-toolbar-actions button svg { display: inline-flex; }
+}

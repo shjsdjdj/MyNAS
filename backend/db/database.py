@@ -10,12 +10,12 @@ def utc_now() -> str:
 
 
 @contextmanager
-def connection():
-    conn = sqlite3.connect(config.DATABASE_PATH, timeout=30, check_same_thread=False)
+def connection(timeout_seconds: float = 30):
+    conn = sqlite3.connect(config.DATABASE_PATH, timeout=timeout_seconds, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute(f"PRAGMA busy_timeout = {max(1, int(timeout_seconds * 1000))}")
     try:
         yield conn
         conn.commit()

@@ -13,7 +13,7 @@ from backend.db.database import connection, get_setting, set_setting, utc_now
 from backend.services.backup_service import backup_logs, configure_daily_schedule, validate_backup_destination
 from backend.utils.files import size_label
 
-MYNAS_VERSION = "3.2.5"
+MYNAS_VERSION = config.VERSION
 DEFAULT_PREFERENCES = {
     "language": "zh",
     "theme": "light",

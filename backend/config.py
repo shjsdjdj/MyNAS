@@ -5,8 +5,12 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 # Public deployment metadata and security controls.
-VERSION = os.getenv("MYNAS_VERSION", "v3.2.5")
-PUBLIC_URL = os.getenv("MYNAS_PUBLIC_URL", "").strip()
+VERSION = os.getenv("MYNAS_VERSION", "3.4.0")
+# MYNAS_PUBLIC_URL remains supported for existing deployments.  The new name
+# makes it explicit that this is a configured base URL, never a request Host.
+PUBLIC_BASE_URL = os.getenv("MYNAS_PUBLIC_BASE_URL", os.getenv("MYNAS_PUBLIC_URL", "")).strip().rstrip("/")
+PUBLIC_URL = PUBLIC_BASE_URL
+TUNNEL_METRICS_URL = os.getenv("MYNAS_TUNNEL_METRICS_URL", "").strip()
 ENVIRONMENT = os.getenv("MYNAS_ENV", "development").strip().lower()
 # Process start timestamp (monotonic, for uptime only — never wall-clock sensitive).
 START_MONOTONIC = time.monotonic()
@@ -46,11 +50,27 @@ TRUSTED_PROXY_IPS = frozenset(
     value.strip() for value in os.getenv("MYNAS_TRUSTED_PROXY_IPS", "").split(",") if value.strip()
 )
 
+def _parse_public_base_url(value: str):
+    if not value:
+        return None
+    parsed = urlparse(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+    ):
+        raise RuntimeError("MYNAS_PUBLIC_BASE_URL must be an origin such as https://nas.example.com")
+    return parsed
+
+
+PARSED_PUBLIC_BASE_URL = _parse_public_base_url(PUBLIC_BASE_URL)
 _default_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
-if PUBLIC_URL:
-    parsed_public_url = urlparse(PUBLIC_URL)
-    if parsed_public_url.scheme in {"http", "https"} and parsed_public_url.netloc:
-        _default_origins.append(f"{parsed_public_url.scheme}://{parsed_public_url.netloc}")
+if PARSED_PUBLIC_BASE_URL:
+    _default_origins.append(f"{PARSED_PUBLIC_BASE_URL.scheme}://{PARSED_PUBLIC_BASE_URL.netloc}")
 CORS_ORIGINS = tuple(dict.fromkeys(
     value.strip() for value in os.getenv("MYNAS_CORS_ORIGINS", ",".join(_default_origins)).split(",") if value.strip()
 ))

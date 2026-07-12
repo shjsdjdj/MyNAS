@@ -21,6 +21,7 @@ from backend.services.auth_service import ensure_default_admin
 from backend.services.backup_service import start_scheduler, stop_scheduler
 from backend.services.scan_service import import_legacy_storage, run_disk_scan, start_default_storage_scan, start_scan_scheduler
 from backend.services.settings_service import ensure_default_storage
+from backend.services.system_service import health_status
 
 
 _security_log = logging.getLogger("mynas.security")
@@ -107,7 +108,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(
-    title="MyNAS Secure API", version="3.2.5",
+    title="MyNAS Secure API", version=config.VERSION,
     docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan,
 )
 app.add_middleware(RequestSizeLimitMiddleware)
@@ -136,7 +137,7 @@ async def api_security_boundary(request: Request, call_next):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'")
-    if path.startswith("/api/"):
+    if path.startswith("/api/") or path == "/health":
         response.headers.setdefault("Cache-Control", "no-store")
     if config.ENVIRONMENT == "production":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
@@ -216,11 +217,9 @@ app.include_router(scan.router)
 
 @app.get("/health", include_in_schema=False)
 def public_health():
-    """Unauthenticated liveness probe for external monitors / load balancers.
-
-    Returns a fixed, intentionally-minimal JSON shape and leaks no internal state.
-    """
-    return {"status": "ok"}
+    """Unauthenticated, strictly-whitelisted readiness probe."""
+    result = health_status()
+    return result if result["status"] == "ok" else JSONResponse(status_code=503, content=result)
 
 
 if os.path.isdir("dist"):

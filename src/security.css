@@ -3,6 +3,13 @@
 .login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; font-size: 21px; font-weight: 700; }
 .login-card h1 { margin: 0; font-size: 25px; }
 .login-card > p { color: #7c879d; font-size: 13px; line-height: 1.7; margin: 9px 0 22px; }
+.connection-card { text-align: center; }
+.connection-card > svg { color: #4b68f4; margin: 0 auto 14px; }
+.connection-card.backend_offline .brand-mark,
+.connection-card.backend_error .brand-mark,
+.connection-card.database_error .brand-mark,
+.connection-card.storage_unavailable .brand-mark { background: #d85862; }
+.connection-card.network_error .brand-mark { background: #d89136; }
 .login-form { display: grid; gap: 14px; }
 .login-form label { display: grid; gap: 7px; color: #4f5b72; font-size: 12px; font-weight: 600; }
 .login-form input { width: 100%; height: 46px; padding: 0 13px; border: 1px solid #dfe3ec; border-radius: 11px; outline: none; }

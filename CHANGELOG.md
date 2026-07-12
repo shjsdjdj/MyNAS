@@ -2,6 +2,53 @@
 
 All notable changes to MyNAS are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses semantic versioning.
 
+## [3.4.0] — 2026-07-12
+
+### Added
+
+- Windows one-click production launcher that validates Python and dependencies, detects port conflicts, waits for backend readiness, checks the optional Cloudflare Tunnel, and opens the safest available URL.
+- Optional current-user Windows startup helpers that create and remove one explicit Startup-folder shortcut without administrator access, registry changes, or a hidden service.
+- Sanitized readiness information for backend, database, storage, version, and uptime; authenticated health additionally includes the existing safe network state.
+- Existing Dashboard and Settings surfaces now show local service state, Tunnel reason, last successful local metrics check, and recovery guidance.
+
+### Changed
+
+- Connection failures are separated into startup, backend offline, network failure, database failure, storage failure, expired authentication, and Tunnel offline states.
+- Settings loads account, preferences, and backup data independently from the optional Tunnel probe so an unavailable connector cannot block the page.
+- Production startup serves the compiled Vue application through FastAPI on `127.0.0.1:8000`; Vite remains available only through the explicit `-Development` switch.
+- Version metadata is unified at `3.4.0`.
+
+### Security
+
+- Readiness responses use a fixed field whitelist and never return paths, database schema, host headers, JWTs, cookies, credentials, or exception details.
+- Tunnel checks remain loopback-only and read-only. The launcher never stores Cloudflare tokens, changes DNS, opens router ports, weakens secure cookies, or stops an unknown process occupying port 8000.
+- Tunnel failure degrades to local-only access instead of disabling the private cloud.
+
+## [3.3.1] — 2026-07-07
+
+### Added
+
+- Installable PWA manifest with MyNAS name, standalone display mode, theme colors, and Android/iOS icons.
+- Build-generated service worker and Workbox precache for the application shell and versioned static assets.
+- Apple Home Screen metadata and a dedicated 180×180 touch icon.
+
+### Security
+
+- API requests, authentication responses, photos, file downloads, and other user data are excluded from PWA caching.
+- No offline file synchronization, background upload, or push-notification capability was added.
+
+### Changed
+
+- Version updated to MyNAS 3.3.1 without API, database, authentication, upload, scanner, or FastAPI deployment changes.
+- Vite updated from 6.4.2 to 6.4.3 to resolve the Windows development-server vulnerabilities reported by npm audit.
+
+### Verification
+
+- Vite production build passed and generated 14 PWA precache entries.
+- Backend and integration suite passed: 61 tests.
+- npm audit reported 0 vulnerabilities.
+- Offline browser reload served the cached App Shell and login interface after the local server stopped.
+
 ## [3.2.5] — 2026-07-07
 
 ### Fixed

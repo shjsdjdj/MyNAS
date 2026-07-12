@@ -1,6 +1,9 @@
 # Template only. Replace placeholders after creating a locally-managed tunnel.
 tunnel: <TUNNEL-UUID>
 credentials-file: C:\Users\<WINDOWS-USERNAME>\.cloudflared\<TUNNEL-UUID>.json
+# Optional stable, loopback-only metrics endpoint. It is used only by MyNAS to
+# display local connector health; it never receives public traffic.
+metrics: 127.0.0.1:20241
 
 ingress:
   - hostname: mynas.example.com

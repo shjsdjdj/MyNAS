@@ -17,8 +17,13 @@ dist/
 !.env.example
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
+*.wal
+*.shm
 *.sqlite
 *.sqlite3
+*.log
 jwt-secret.key
 
 # Runtime data (repo-root only — anchored with leading slash so backend/
@@ -36,11 +41,14 @@ artifacts/
 
 # Cloudflare credentials (keep the example)
 cloudflare/*.yml
+cloudflare/*.yaml
+cloudflare/*credentials*.json
 !cloudflare/config.example.yml
 
 # Local agent/editor state
 .agents/
 .codex/
+.kiro/
 AGENTS.md
 AI_SYSTEM_CONSTITUTION.md
 design-qa.md

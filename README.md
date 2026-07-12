@@ -1,4 +1,4 @@
-# MyNAS v3.2.5
+# MyNAS v3.4.0
 
 **A Windows-first, cross-platform personal cloud for managing your own photos and files—locally or remotely.** MyNAS brings an iCloud Photos-style experience to Windows, Linux, and macOS while keeping storage, metadata, authentication, and backups under the owner's control.
 
@@ -25,6 +25,8 @@ That is why I started MyNAS. It remains Windows-first because that is where the 
 - SHA-256 indexing, UUID storage names, thumbnails, and best-effort EXIF extraction.
 - SHA256-verified external backups with atomic snapshots and APScheduler schedules.
 - Dashboard metrics, recent activity, storage usage, backup state, and health status.
+- Windows one-click launcher with readiness checks, port-conflict diagnostics, safe Tunnel fallback, and optional per-user startup.
+- Explicit backend, database, storage, network, session, and Tunnel failure states instead of a generic connection error.
 - Settings Center for account, session, language, storage, backup, and preferences.
 - Simplified Chinese and English without a heavyweight internationalization framework.
 - JWT authentication, HttpOnly cookies, user isolation, IDOR protection, and audit logs.
@@ -90,13 +92,31 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 npm ci
+npm run build
 
 $env:MYNAS_ADMIN_PASSWORD = "replace-with-a-long-random-password"
 $env:MYNAS_COOKIE_SECURE = "false"   # local HTTP only
-.\start.ps1
+.\Start-MyNAS.bat
 ```
 
-Open `http://127.0.0.1:5173`. The initial username is `admin`; the password is the value supplied through `MYNAS_ADMIN_PASSWORD`. If no password is supplied, the local-development fallback is `admin` and MyNAS requires it to be changed after login.
+The launcher waits for `http://127.0.0.1:8000/health`, diagnoses an occupied port without terminating unknown processes, checks the optional local cloudflared connector, and then opens the safest available URL. The initial username is `admin`; the password is the value supplied through `MYNAS_ADMIN_PASSWORD`. If no password is supplied, the local-development fallback is `admin` and MyNAS requires it to be changed after login.
+
+For frontend development, keep the same backend and explicitly request the Vite server:
+
+```powershell
+.\start.ps1 -Development
+```
+
+### Optional Windows startup
+
+MyNAS never installs hidden persistence. These helpers create or remove one visible shortcut named `MyNAS.lnk` in the current user's Windows Startup folder; no administrator rights, registry changes, or Windows service are used.
+
+```powershell
+.\Enable-MyNASStartup.bat
+.\Disable-MyNASStartup.bat
+```
+
+The shortcut uses the repository's absolute path. Run Enable again after moving the project. Runtime PID and launcher logs are kept under the ignored `.tmp/launcher` directory. The batch entry points use process-scoped PowerShell execution-policy bypass, so run them only from a trusted, unmodified MyNAS checkout.
 
 Linux and macOS use the equivalent startup script:
 
@@ -132,7 +152,17 @@ MyNAS defaults to `E:\MyNAS` on Windows and `~/MyNAS` on Linux and macOS. `MYNAS
 $env:MYNAS_ROOT = "D:\MyNAS"
 ```
 
-For remote access, keep Uvicorn bound to localhost and place it behind an authenticated HTTPS reverse proxy or Cloudflare Tunnel. Set `MYNAS_COOKIE_SECURE=true` when HTTPS is active.
+For remote access, keep Uvicorn bound to localhost and place it behind an authenticated HTTPS reverse proxy or Cloudflare Tunnel. Set `MYNAS_COOKIE_SECURE=true` and `MYNAS_PUBLIC_BASE_URL=https://<your-domain>` when HTTPS is active. The in-app Public Access card is read-only: it never creates a Tunnel or changes DNS.
+
+## Install as a PWA
+
+The production build can be installed as a Progressive Web App in Chrome, Edge, and Safari. MyNAS includes a web app manifest, platform icons, standalone display mode, and a service worker that caches only the application shell and versioned static assets.
+
+- Desktop Chrome or Edge: open the production URL and choose **Install MyNAS**.
+- Android Chrome: open the HTTPS URL and choose **Add to Home screen** or **Install app**.
+- iPhone Safari: use **Share → Add to Home Screen**.
+
+PWA caching does not include `/api/*`, photos, downloads, authentication responses, uploads, or other private user data. Offline file synchronization, background uploads, and push notifications are intentionally not implemented. Mobile installation requires HTTPS; plain LAN addresses such as `http://192.168.x.x` are not secure service-worker origins.
 
 ## Storage Locations
 
@@ -163,6 +193,8 @@ All paths below are relative to the same MyNAS origin.
 | `GET` | `/api/settings/storage` | List Storage Locations |
 | `POST` | `/api/settings/storage` | Add a location and trigger scanning |
 | `GET` | `/api/dashboard` | Read dashboard and health data |
+| `GET` | `/health` | Public sanitized backend/database/storage readiness |
+| `GET` | `/api/health` | Authenticated readiness plus configured network state |
 
 Compatibility aliases such as `/api/assets/list` and `/api/asset/{uuid}` remain available, but new clients should use the plural Asset routes. Path-based file APIs are intentionally absent.
 
